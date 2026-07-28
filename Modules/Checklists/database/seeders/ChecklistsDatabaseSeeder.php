@@ -1,0 +1,16 @@
+<?php
+
+namespace Modules\Checklists\Database\Seeders;
+
+use Illuminate\Database\Seeder;
+
+class ChecklistsDatabaseSeeder extends Seeder
+{
+    /**
+     * Run the database seeds.
+     */
+    public function run(): void
+    {
+        // $this->call([]);
+    }
+}

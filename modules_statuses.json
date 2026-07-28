@@ -1,0 +1,22 @@
+{
+    "Auth": true,
+    "Users": true,
+    "Roles": true,
+    "Contacts": true,
+    "Folders": true,
+    "Files": true,
+    "Agreements": true,
+    "CommonUsers": true,
+    "Clients": true,
+    "Payments": true,
+    "Invoices": true,
+    "Checklists": true,
+    "Workflows": true,
+    "Communications": true,
+    "Finance": true,
+    "Forms": true,
+    "AuditLogs": true,
+    "System": true,
+    "Services": true,
+    "Ocr": true
+}

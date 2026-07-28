@@ -1,0 +1,11 @@
+{
+    "name": "CommonUsers",
+    "alias": "commonusers",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\CommonUsers\\Providers\\CommonUsersServiceProvider"
+    ],
+    "files": []
+}

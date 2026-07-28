@@ -1,0 +1,30 @@
+{
+    "name": "nwidart/ocr",
+    "description": "",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Ocr\\": "app/",
+            "Modules\\Ocr\\Database\\Factories\\": "database/factories/",
+            "Modules\\Ocr\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\Ocr\\Tests\\": "tests/"
+        }
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "name": "Ocr",
+    "alias": "ocr",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Ocr\\Providers\\OcrServiceProvider"
+    ],
+    "files": []
+}
