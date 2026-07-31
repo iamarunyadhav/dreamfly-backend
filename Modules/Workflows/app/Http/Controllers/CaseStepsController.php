@@ -5,6 +5,7 @@ namespace Modules\Workflows\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\Http\ApiResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Modules\Clients\Models\Client;
 use Modules\Workflows\Http\Resources\CaseStepResource;
 use Modules\Workflows\Models\CaseStep;
@@ -73,6 +74,27 @@ class CaseStepsController extends Controller
         $caseStep = $this->service->resume($caseStep);
 
         return $this->ok(new CaseStepResource($caseStep), 'Step resumed.');
+    }
+
+    /**
+     * Admin/Super-Admin-only: reopen an already-completed step. Cascades -
+     * every later step resets to pending too, matching sendBackTo()'s existing
+     * supervisor-rejection behavior exactly (nothing new inside the service).
+     */
+    public function reset(Request $request, CaseStep $caseStep)
+    {
+        $validated = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+
+        if ($caseStep->status !== 'completed') {
+            throw ValidationException::withMessages([
+                'status' => ['Only a completed step can be reopened.'],
+            ]);
+        }
+
+        $client = Client::findOrFail($caseStep->client_id);
+        $steps = $this->service->sendBackTo($client, $caseStep->key, $validated['reason']);
+
+        return $this->ok(['steps' => CaseStepResource::collection($steps)], 'Step reopened; later steps reset to pending.');
     }
 
     public function update(Request $request, CaseStep $caseStep)

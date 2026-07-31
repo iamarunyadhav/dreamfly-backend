@@ -47,10 +47,10 @@ class UpdateClientRequest extends FormRequest
             'agreement_amount' => ['nullable', 'integer', 'min:0'],
             'paid_amount' => ['nullable', 'integer', 'min:0'],
             'assigned_supervisor_id' => ['nullable', 'integer', 'exists:users,id'],
-            'current_stage' => ['sometimes', Rule::in([
-                'admin_summary', 'application_unit', 'documentation_unit', 'supervisor_review',
-                'invoice', 'submission', 'visa_result', 'closed',
-            ])],
+            // current_stage is intentionally NOT validated/accepted here - it must
+            // only ever move through CaseStepService::advance()/sendBackTo() (see
+            // Modules/Workflows), so the gated Workflow tab can trust case_steps
+            // as the single source of truth. A raw PATCH can no longer skip stages.
             'visa_outcome' => ['nullable', Rule::in(['approved', 'refused', 'withdrawn', 'pending'])],
             'status' => ['sometimes', Rule::in(['active', 'on_hold', 'closed'])],
         ];

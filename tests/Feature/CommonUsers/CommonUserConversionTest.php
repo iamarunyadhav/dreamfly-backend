@@ -8,6 +8,7 @@ use Modules\CommonUsers\Models\CommonUser;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
 use Modules\Payments\Models\Payment;
+use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
 
 class CommonUserConversionTest extends TestCase
@@ -162,5 +163,11 @@ class CommonUserConversionTest extends TestCase
         $file->refresh();
         $this->assertSame($client->id, $file->client_id);
         $this->assertSame($applicantDocuments->id, $file->folder_id);
+
+        // Converting a lead is one of the two real client-creation paths - the
+        // gated Workflow tab depends on every client having its case_steps
+        // seeded from the moment it exists, never left to a manual step.
+        $this->assertSame(9, CaseStep::where('client_id', $client->id)->count());
+        $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->value('status'));
     }
 }

@@ -5,6 +5,7 @@ namespace Tests\Feature\Clients;
 use App\Models\User;
 use Modules\Clients\Models\Client;
 use Modules\CommonUsers\Models\CommonUser;
+use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
 
 class ClientUniquenessTest extends TestCase
@@ -66,6 +67,11 @@ class ClientUniquenessTest extends TestCase
         ]);
 
         $response->assertCreated();
+
+        // POST /clients is the other real client-creation path (besides lead
+        // conversion) - it must also seed case_steps immediately, never left to
+        // a manual "initialize" call.
+        $this->assertSame(9, CaseStep::where('client_id', $response->json('data.id'))->count());
     }
 
     public function test_updating_a_client_to_collide_with_another_client_is_rejected(): void

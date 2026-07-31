@@ -9,6 +9,7 @@ use Modules\Clients\Models\ClientApplicationUnit;
 use Modules\Checklists\Models\CaseChecklistItem;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -162,6 +163,12 @@ class ApplicationUnitTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('data.application_unit.status', 'completed');
         $response->assertJsonPath('data.client.current_stage', 'documentation_unit');
+
+        // Stage advancement must go through the case-step engine (not just a
+        // client.current_stage forceFill), so the gated Workflow tab can trust
+        // case_steps as the single source of truth.
+        $this->assertSame('completed', CaseStep::where('client_id', $client->id)->where('key', 'application_unit')->value('status'));
+        $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'documentation_unit')->value('status'));
     }
 
     public function test_application_unit_docx_generation_saves_file_and_binds_values(): void

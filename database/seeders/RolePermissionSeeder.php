@@ -36,6 +36,11 @@ class RolePermissionSeeder extends Seeder
         'reports' => ['view'],
         'system' => ['view', 'edit'],
         'ocr' => ['manage', 'run', 'view'],
+        // Reopening an already-completed workflow step (cascading back to
+        // pending) is deliberately narrower than clients.edit/workflows.edit -
+        // both of those are already held by operational staff who run cases day
+        // to day, so a new module name is the only way to keep this exclusive.
+        'case-steps' => ['reset'],
     ];
 
     /** @var array<string, string[]> module => actions, built once in run() */
@@ -64,10 +69,19 @@ class RolePermissionSeeder extends Seeder
 
         Role::firstOrCreate(['name' => 'Super Admin', 'guard_name' => 'web'])->syncPermissions($allPermissionNames);
         Role::firstOrCreate(['name' => 'Admin', 'guard_name' => 'web'])->syncPermissions($allPermissionNames);
-        Role::firstOrCreate(['name' => 'Manager', 'guard_name' => 'web'])->syncPermissions($allPermissionNames);
+
+        // Manager is otherwise identical to Admin/Super Admin, but reopening a
+        // completed workflow step is deliberately kept to Admin + Super Admin
+        // only - the one deviation from "these three roles are the same" in
+        // this seeder.
+        Role::firstOrCreate(['name' => 'Manager', 'guard_name' => 'web'])->syncPermissions(
+            collect($allPermissionNames)->reject(fn (string $name) => $name === 'case-steps.reset')->all()
+        );
 
         Role::firstOrCreate(['name' => 'Supervisor', 'guard_name' => 'web'])->syncPermissions(
-            collect($allPermissionNames)->reject(fn (string $name) => str_starts_with($name, 'system.'))->all()
+            collect($allPermissionNames)->reject(
+                fn (string $name) => str_starts_with($name, 'system.') || $name === 'case-steps.reset'
+            )->all()
         );
 
         // Unit staff read the supervisor's verdict and answer on the thread, but

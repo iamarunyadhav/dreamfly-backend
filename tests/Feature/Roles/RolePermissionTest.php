@@ -112,6 +112,26 @@ class RolePermissionTest extends TestCase
         }
     }
 
+    /**
+     * case-steps.reset is the one deliberate deviation in this seeder: Manager
+     * is otherwise identical to Admin/Super Admin everywhere else, but must not
+     * be able to reopen a completed workflow step.
+     */
+    public function test_case_steps_reset_permission_is_admin_and_super_admin_only(): void
+    {
+        $this->assertTrue(Role::where('name', 'Super Admin')->first()->hasPermissionTo('case-steps.reset'));
+        $this->assertTrue(Role::where('name', 'Admin')->first()->hasPermissionTo('case-steps.reset'));
+
+        foreach ([
+            'Manager', 'Supervisor', 'Application Unit Staff', 'Documentation Unit Staff',
+            'Accounts Staff', 'Reception Staff', 'Read-only Staff',
+        ] as $roleName) {
+            $role = Role::where('name', $roleName)->first();
+            $this->assertNotNull($role, "{$roleName} is not seeded.");
+            $this->assertFalse($role->hasPermissionTo('case-steps.reset'), "{$roleName} should not hold case-steps.reset.");
+        }
+    }
+
     /** The role itself — not a hand-granted permission — must reach the stage it owns. */
     public function test_application_unit_staff_role_can_reach_the_application_unit_endpoint(): void
     {

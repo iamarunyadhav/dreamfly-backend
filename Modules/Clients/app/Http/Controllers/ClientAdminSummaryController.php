@@ -14,6 +14,8 @@ use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientAdminSummary;
 use Modules\Clients\Services\AdminSummaryDocumentService;
 use Modules\Files\Http\Resources\FileResource;
+use Modules\Workflows\Models\CaseStep;
+use Modules\Workflows\Services\CaseStepService;
 
 class ClientAdminSummaryController extends Controller
 {
@@ -44,7 +46,7 @@ class ClientAdminSummaryController extends Controller
         return $this->ok(new ClientAdminSummaryResource($summary), 'Admin Summary draft saved.');
     }
 
-    public function complete(Request $request, Client $client)
+    public function complete(Request $request, Client $client, CaseStepService $caseSteps)
     {
         $validated = $request->validate([
             'summary' => ['required', 'string', 'min:10'],
@@ -66,7 +68,7 @@ class ClientAdminSummaryController extends Controller
             ]);
         }
 
-        return DB::transaction(function () use ($request, $client, $validated) {
+        return DB::transaction(function () use ($request, $client, $validated, $caseSteps) {
             $summary = ClientAdminSummary::updateOrCreate(
                 ['client_id' => $client->id],
                 [
@@ -80,10 +82,16 @@ class ClientAdminSummaryController extends Controller
                 ],
             );
 
-            $client->forceFill([
-                'assigned_supervisor_id' => $validated['supervisor_id'],
-                'current_stage' => 'application_unit',
-            ])->save();
+            $client->forceFill(['assigned_supervisor_id' => $validated['supervisor_id']])->save();
+
+            // Stage advancement always goes through the case-step engine, never
+            // a direct current_stage forceFill, so the Workflow tab's gating can
+            // trust case_steps as the single source of truth.
+            $step = CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->first();
+            if (! $step) {
+                $step = $caseSteps->initializeForClient($client)->firstWhere('key', 'admin_summary');
+            }
+            $caseSteps->advance($step, $request->user()->id);
 
             return $this->ok([
                 'admin_summary' => new ClientAdminSummaryResource($summary),

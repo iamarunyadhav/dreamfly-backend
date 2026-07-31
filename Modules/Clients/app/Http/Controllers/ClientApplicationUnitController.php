@@ -21,6 +21,8 @@ use Modules\Files\Models\File;
 use Modules\Files\Services\FileService;
 use Modules\Folders\Models\Folder;
 use Illuminate\Support\Str;
+use Modules\Workflows\Models\CaseStep;
+use Modules\Workflows\Services\CaseStepService;
 
 class ClientApplicationUnitController extends Controller
 {
@@ -49,7 +51,7 @@ class ClientApplicationUnitController extends Controller
         return $this->ok(new ClientApplicationUnitResource($applicationUnit), 'Application Unit draft saved.');
     }
 
-    public function complete(UpsertClientApplicationUnitRequest $request, Client $client, ApplicationChecklistRuntimeService $runtime)
+    public function complete(UpsertClientApplicationUnitRequest $request, Client $client, ApplicationChecklistRuntimeService $runtime, CaseStepService $caseSteps)
     {
         if ($client->current_stage !== 'application_unit') {
             throw ValidationException::withMessages([
@@ -64,7 +66,7 @@ class ClientApplicationUnitController extends Controller
             ]);
         }
 
-        return DB::transaction(function () use ($request, $client, $validated, $runtime) {
+        return DB::transaction(function () use ($request, $client, $validated, $runtime, $caseSteps) {
             $applicationUnit = ClientApplicationUnit::updateOrCreate(
                 ['client_id' => $client->id],
                 [
@@ -80,7 +82,14 @@ class ClientApplicationUnitController extends Controller
 
             $runtime->sync($applicationUnit);
 
-            $client->forceFill(['current_stage' => 'documentation_unit'])->save();
+            // Stage advancement always goes through the case-step engine, never
+            // a direct current_stage forceFill, so the Workflow tab's gating can
+            // trust case_steps as the single source of truth.
+            $step = CaseStep::where('client_id', $client->id)->where('key', 'application_unit')->first();
+            if (! $step) {
+                $step = $caseSteps->initializeForClient($client)->firstWhere('key', 'application_unit');
+            }
+            $caseSteps->advance($step, $request->user()->id);
 
             return $this->ok([
                 'application_unit' => new ClientApplicationUnitResource($applicationUnit),

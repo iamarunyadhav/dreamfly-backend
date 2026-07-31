@@ -13,6 +13,9 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::post('case-steps/{caseStep}/hold', [CaseStepsController::class, 'hold'])->middleware('permission:clients.edit')->name('case-steps.hold');
     Route::post('case-steps/{caseStep}/resume', [CaseStepsController::class, 'resume'])->middleware('permission:clients.edit')->name('case-steps.resume');
     Route::patch('case-steps/{caseStep}', [CaseStepsController::class, 'update'])->middleware('permission:clients.edit')->name('case-steps.update');
+    // Reopening a completed step is deliberately narrower than clients.edit -
+    // Admin/Super Admin only, see RolePermissionSeeder's case-steps.reset carve-out.
+    Route::post('case-steps/{caseStep}/reset', [CaseStepsController::class, 'reset'])->middleware('permission:case-steps.reset')->name('case-steps.reset');
 
     Route::get('workflows', [WorkflowsController::class, 'index'])->middleware('permission:workflows.view')->name('workflows.index');
     Route::post('workflows', [WorkflowsController::class, 'store'])->middleware('permission:workflows.create')->name('workflows.store');

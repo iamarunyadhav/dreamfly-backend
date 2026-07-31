@@ -8,6 +8,7 @@ use Modules\Clients\Models\ClientAdminSummary;
 use Modules\Communications\Models\Message;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -124,6 +125,12 @@ class AdminSummaryTest extends TestCase
         $this->assertSame('completed', $summary->status);
         $this->assertSame($user->id, $summary->completed_by);
         $this->assertNotNull($summary->completed_at);
+
+        // Stage advancement must go through the case-step engine (not just a
+        // client.current_stage forceFill), so the gated Workflow tab can trust
+        // case_steps as the single source of truth.
+        $this->assertSame('completed', CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->value('status'));
+        $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'application_unit')->value('status'));
     }
 
     public function test_admin_summary_cannot_complete_from_wrong_stage(): void

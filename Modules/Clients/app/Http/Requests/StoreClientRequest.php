@@ -47,7 +47,7 @@ class StoreClientRequest extends FormRequest
             'assigned_supervisor_id' => ['nullable', 'integer', 'exists:users,id'],
             'current_stage' => ['sometimes', Rule::in([
                 'admin_summary', 'application_unit', 'documentation_unit', 'supervisor_review',
-                'invoice', 'submission', 'visa_result', 'closed',
+                'responsibility_notice', 'invoice', 'submission', 'visa_result', 'closed',
             ])],
             'status' => ['sometimes', Rule::in(['active', 'on_hold', 'closed'])],
         ];

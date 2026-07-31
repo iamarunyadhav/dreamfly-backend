@@ -3,10 +3,13 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Modules\Clients\Models\Client;
 use Modules\Clients\Services\AuthorityRequestDeadlineService;
 use Modules\Clients\Services\DocumentationTaskDeadlineService;
 use Modules\Communications\Services\AlertDispatcher;
 use Modules\Invoices\Services\InvoiceService;
+use Modules\Workflows\Models\CaseStep;
+use Modules\Workflows\Services\CaseStepService;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -51,3 +54,17 @@ Artisan::command('alerts:prune {--days=90}', function (AlertDispatcher $alerts) 
 })->purpose('Delete alert dispatch history older than the retention window');
 
 Schedule::command('alerts:prune')->weeklyOn(1, '02:00')->withoutOverlapping();
+
+Artisan::command('case-steps:backfill', function (CaseStepService $service) {
+    $count = 0;
+
+    Client::whereNotIn('id', CaseStep::select('client_id')->distinct())
+        ->chunkById(50, function ($clients) use ($service, &$count) {
+            foreach ($clients as $client) {
+                $service->initializeForClient($client);
+                $count++;
+            }
+        });
+
+    $this->info("Initialized case_steps for {$count} client(s) that had none.");
+})->purpose('One-off backfill: seed case_steps for clients created before the runtime engine was wired in');
