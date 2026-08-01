@@ -7,6 +7,7 @@ use Modules\Clients\Models\Client;
 use Modules\CommonUsers\Models\CommonUser;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use Modules\Payments\Models\Payment;
 use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
@@ -103,10 +104,15 @@ class CommonUserConversionTest extends TestCase
 
     public function test_common_user_conversion_creates_client_payment_and_default_folder_tree(): void
     {
+        $staff = $this->staffWithConversionPermissions();
         $lead = $this->lead();
         $file = $this->verifiedLeadFile($lead);
+        // Every lead gets its own folder tree at creation time in real usage
+        // (CommonUsersController::store) - build one here so the conversion's
+        // archiving step has something real to relocate.
+        app(FolderService::class)->createLeadFolderTree($lead, $staff->id);
 
-        $response = $this->actingAs($this->staffWithConversionPermissions())
+        $response = $this->actingAs($staff)
             ->postJson("/api/v1/common-users/{$lead->id}/convert");
 
         $response->assertStatus(201);
@@ -169,5 +175,17 @@ class CommonUserConversionTest extends TestCase
         // seeded from the moment it exists, never left to a manual step.
         $this->assertSame(9, CaseStep::where('client_id', $client->id)->count());
         $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->value('status'));
+
+        // The lead's own (now-empty) folder tree moves into Common Users >
+        // Archived rather than sitting in its country folder as if it were
+        // still an active lead.
+        $archivedRoot = Folder::where('name', 'Archived')
+            ->whereHas('parent', fn ($q) => $q->where('name', 'Common Users')->whereNull('parent_id'))
+            ->first();
+        $this->assertNotNull($archivedRoot);
+        $this->assertDatabaseHas('folders', [
+            'common_user_id' => $lead->id,
+            'parent_id' => $archivedRoot->id,
+        ]);
     }
 }

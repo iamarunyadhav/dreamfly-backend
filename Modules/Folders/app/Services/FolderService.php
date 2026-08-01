@@ -20,6 +20,11 @@ class FolderService extends BaseService
 
     private const UNSPECIFIED_COUNTRY = 'Unspecified';
 
+    private const ARCHIVED_LEADS_FOLDER = 'Archived';
+
+    private const ARCHIVED_LEADS_DESCRIPTION = 'Leads that have been converted to clients. Their documents now live '
+        .'in the client\'s own folder tree - this archive is kept for reference only and is never deleted automatically.';
+
     public function __construct(FolderRepositoryInterface $repository)
     {
         parent::__construct($repository);
@@ -31,8 +36,25 @@ class FolderService extends BaseService
     public function tree(): array
     {
         $folders = collect($this->repository->tree());
+        $fileCounts = $this->directFileCounts();
 
-        return $this->buildBranch($folders, null);
+        return $this->buildBranch($folders, null, $fileCounts);
+    }
+
+    /**
+     * Current (non-superseded) file count per folder, in one query - the
+     * building block for each folder's own-plus-descendants total below.
+     *
+     * @return Collection<int, int>
+     */
+    private function directFileCounts(): Collection
+    {
+        return DB::table('files')
+            ->whereNull('deleted_at')
+            ->where('is_current', true)
+            ->selectRaw('folder_id, count(*) as cnt')
+            ->groupBy('folder_id')
+            ->pluck('cnt', 'folder_id');
     }
 
     public function create(array $attributes): Folder
@@ -99,6 +121,48 @@ class FolderService extends BaseService
     }
 
     /**
+     * Relocate a converted lead's own folder tree into "Common Users >
+     * Archived" instead of leaving it sitting under its country folder as if
+     * it were still an active lead - its documents have already been re-filed
+     * into the new client's tree by this point, this just keeps the empty
+     * shell around for reference rather than deleting it.
+     */
+    public function archiveLeadFolderTree(CommonUser $lead, ?int $userId = null): ?Folder
+    {
+        $leadRoot = Folder::where('common_user_id', $lead->id)
+            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
+            ->first();
+
+        if (! $leadRoot) {
+            return null;
+        }
+
+        $archivedRoot = $this->ensureArchivedLeadsRoot($userId ?? $leadRoot->created_by);
+
+        if ($leadRoot->parent_id !== $archivedRoot->id) {
+            $leadRoot->update(['parent_id' => $archivedRoot->id]);
+        }
+
+        return $leadRoot;
+    }
+
+    private function ensureArchivedLeadsRoot(?int $userId): Folder
+    {
+        $commonUsersRoot = $this->ensureNamedGlobalRoot(self::COMMON_USERS_ROOT, $userId);
+
+        return Folder::firstOrCreate(
+            ['name' => self::ARCHIVED_LEADS_FOLDER, 'parent_id' => $commonUsersRoot->id],
+            [
+                'description' => self::ARCHIVED_LEADS_DESCRIPTION,
+                'slug' => 'common-users-archived',
+                'scope' => 'global',
+                'is_active' => true,
+                'created_by' => $userId,
+            ],
+        );
+    }
+
+    /**
      * Resolve (creating if needed) a named subfolder inside a client's folder,
      * e.g. "Final Documents". Shared by the services that file generated or
      * uploaded documents so there is one client-folder resolution rule.
@@ -136,24 +200,37 @@ class FolderService extends BaseService
         return $applicantDocumentsFolderId ?? $ownerRoot->id;
     }
 
-    private function buildBranch(Collection $folders, ?int $parentId): array
+    private function buildBranch(Collection $folders, ?int $parentId, Collection $fileCounts): array
     {
         return $folders
             ->where('parent_id', $parentId)
-            ->map(fn ($folder) => [
-                'id' => $folder->id,
-                'name' => $folder->name,
-                'slug' => $folder->slug,
-                'client_id' => $folder->client_id,
-                'common_user_id' => $folder->common_user_id,
-                'template_id' => $folder->template_id,
-                'scope' => $folder->scope,
-                'is_general' => $folder->is_general,
-                'auto_create_for_clients' => $folder->auto_create_for_clients,
-                'is_active' => $folder->is_active,
-                'public_download' => $folder->public_download,
-                'children' => $this->buildBranch($folders, $folder->id),
-            ])
+            ->map(function ($folder) use ($folders, $fileCounts) {
+                $children = $this->buildBranch($folders, $folder->id, $fileCounts);
+
+                // Own directly-filed documents plus everything nested under
+                // this folder, so a parent that holds only subfolders (no
+                // direct files) still reflects whether there is any data
+                // underneath it at a glance, without expanding the tree.
+                $filesCount = (int) ($fileCounts->get($folder->id) ?? 0)
+                    + collect($children)->sum('files_count');
+
+                return [
+                    'id' => $folder->id,
+                    'name' => $folder->name,
+                    'description' => $folder->description,
+                    'slug' => $folder->slug,
+                    'client_id' => $folder->client_id,
+                    'common_user_id' => $folder->common_user_id,
+                    'template_id' => $folder->template_id,
+                    'scope' => $folder->scope,
+                    'is_general' => $folder->is_general,
+                    'auto_create_for_clients' => $folder->auto_create_for_clients,
+                    'is_active' => $folder->is_active,
+                    'public_download' => $folder->public_download,
+                    'files_count' => $filesCount,
+                    'children' => $children,
+                ];
+            })
             ->values()
             ->all();
     }

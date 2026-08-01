@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Schedule;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Services\AuthorityRequestDeadlineService;
 use Modules\Clients\Services\DocumentationTaskDeadlineService;
+use Modules\CommonUsers\Models\CommonUser;
 use Modules\Communications\Services\AlertDispatcher;
+use Modules\Folders\Services\FolderService;
 use Modules\Invoices\Services\InvoiceService;
 use Modules\Workflows\Models\CaseStep;
 use Modules\Workflows\Services\CaseStepService;
@@ -68,3 +70,19 @@ Artisan::command('case-steps:backfill', function (CaseStepService $service) {
 
     $this->info("Initialized case_steps for {$count} client(s) that had none.");
 })->purpose('One-off backfill: seed case_steps for clients created before the runtime engine was wired in');
+
+Artisan::command('folders:archive-converted-leads', function (FolderService $service) {
+    $moved = 0;
+
+    CommonUser::where('status', 'converted')
+        ->chunkById(50, function ($leads) use ($service, &$moved) {
+            foreach ($leads as $lead) {
+                $folder = $service->archiveLeadFolderTree($lead);
+                if ($folder && $folder->wasChanged('parent_id')) {
+                    $moved++;
+                }
+            }
+        });
+
+    $this->info("Archived the folder tree for {$moved} already-converted lead(s).");
+})->purpose('One-off backfill: move already-converted leads\' folder trees into Common Users > Archived');

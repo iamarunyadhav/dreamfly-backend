@@ -5,6 +5,7 @@ namespace Tests\Feature\Folders;
 use App\Models\User;
 use Modules\Clients\Models\Client;
 use Modules\CommonUsers\Models\CommonUser;
+use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
 use Modules\Folders\Services\FolderService;
 use Tests\TestCase;
@@ -189,5 +190,106 @@ class FolderTemplatesTest extends TestCase
             'name' => 'Sponsor Letters',
             'scope' => 'lead',
         ]);
+    }
+
+    public function test_archiving_a_converted_leads_folder_tree_moves_it_under_common_users_archived(): void
+    {
+        $user = $this->staff('folders.create');
+        $service = app(FolderService::class);
+        $lead = CommonUser::create([
+            'full_name' => 'Archived Lead',
+            'country' => 'Canada',
+            'visa_type' => 'Visit Visa',
+            'service_category' => 'visit_visa',
+            'agreement_amount' => 100000,
+            'paid_amount' => 100000,
+            'status' => 'converted',
+        ]);
+        $service->createLeadFolderTree($lead, $user->id);
+        $leadRootBefore = Folder::where('common_user_id', $lead->id)->whereNull('client_id')
+            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
+            ->first();
+        $this->assertNotSame('Archived', $leadRootBefore->parent->name);
+
+        $archived = $service->archiveLeadFolderTree($lead, $user->id);
+
+        $this->assertNotNull($archived);
+        $this->assertSame($leadRootBefore->id, $archived->id);
+
+        $commonUsersRoot = Folder::where('name', 'Common Users')->whereNull('parent_id')->first();
+        $archivedFolder = Folder::where('name', 'Archived')->where('parent_id', $commonUsersRoot->id)->first();
+        $this->assertNotNull($archivedFolder);
+        $this->assertNotNull($archivedFolder->description);
+
+        $this->assertSame($archivedFolder->id, $archived->refresh()->parent_id);
+
+        // Idempotent - archiving again does not move it a second time or error.
+        $again = $service->archiveLeadFolderTree($lead, $user->id);
+        $this->assertSame($archivedFolder->id, $again->refresh()->parent_id);
+    }
+
+    public function test_archiving_a_lead_with_no_folder_tree_is_a_safe_no_op(): void
+    {
+        $lead = CommonUser::create([
+            'full_name' => 'No Folder Lead',
+            'service_category' => 'visit_visa',
+            'agreement_amount' => 100000,
+            'paid_amount' => 100000,
+            'status' => 'converted',
+        ]);
+
+        $this->assertNull(app(FolderService::class)->archiveLeadFolderTree($lead));
+    }
+
+    public function test_folder_tree_endpoint_reports_recursive_file_counts(): void
+    {
+        $user = $this->staff('folders.view');
+        $client = $this->client('DF-155-2026');
+        app(FolderService::class)->createClientFolderTree($client, $user->id);
+
+        $clientRoot = Folder::where('client_id', $client->id)
+            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
+            ->first();
+        $applicantDocs = Folder::where('client_id', $client->id)->where('name', 'Applicant Documents')->first();
+
+        File::create([
+            'client_id' => $client->id,
+            'folder_id' => $applicantDocs->id,
+            'name' => 'passport.pdf',
+            'original_name' => 'passport.pdf',
+            'disk' => 'local',
+            'path' => 'documents/passport.pdf',
+            'extension' => 'pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1000,
+            'is_current' => true,
+        ]);
+        // A superseded version must not inflate the count.
+        File::create([
+            'client_id' => $client->id,
+            'folder_id' => $applicantDocs->id,
+            'name' => 'old.pdf',
+            'original_name' => 'old.pdf',
+            'disk' => 'local',
+            'path' => 'documents/old.pdf',
+            'extension' => 'pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1000,
+            'is_current' => false,
+        ]);
+
+        $response = $this->actingAs($user)->getJson('/api/v1/folders');
+        $response->assertOk();
+
+        $tree = collect($response->json('data'));
+        $clientsRoot = $tree->firstWhere('name', 'Clients');
+        $countryFolder = collect($clientsRoot['children'])->firstWhere('name', 'United Kingdom');
+        $clientNode = collect($countryFolder['children'])->firstWhere('id', $clientRoot->id);
+        $applicantDocsNode = collect($clientNode['children'])->firstWhere('id', $applicantDocs->id);
+
+        $this->assertSame(1, $applicantDocsNode['files_count']);
+        // The client root itself holds no direct files, only subfolders - its
+        // count must roll up from its Applicant Documents child.
+        $this->assertSame(1, $clientNode['files_count']);
     }
 }

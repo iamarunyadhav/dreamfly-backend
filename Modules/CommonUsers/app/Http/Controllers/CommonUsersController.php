@@ -155,6 +155,11 @@ class CommonUsersController extends Controller
 
             $this->service->update($commonUser, ['status' => 'converted']);
 
+            // The lead's own folder tree is now empty of live documents - move
+            // it into Common Users > Archived rather than leaving it sitting
+            // in its country folder as if still an active lead.
+            $folderService->archiveLeadFolderTree($commonUser, $request->user()->id);
+
             app(\Modules\Communications\Services\AlertDispatcher::class)->trigger('client_converted', [
                 'client_id' => $client->id,
                 'client_reference' => $client->reference_no,
