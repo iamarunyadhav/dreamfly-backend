@@ -9,12 +9,17 @@ use Illuminate\Support\Facades\View;
 use Illuminate\Support\Str;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use Modules\Invoices\Models\Invoice;
 use Spatie\Browsershot\Browsershot;
 use Throwable;
 
 class InvoiceDocumentService
 {
+    public function __construct(private FolderService $folders)
+    {
+    }
+
     public function generatePdf(Invoice $invoice, int $userId): File
     {
         $invoice->loadMissing(['client', 'items', 'payments']);
@@ -140,33 +145,13 @@ class InvoiceDocumentService
 
     private function invoiceFolder(Invoice $invoice, int $userId): Folder
     {
-        $root = Folder::firstOrCreate(['name' => 'Clients', 'parent_id' => null], [
-            'slug' => 'clients',
-            'is_active' => true,
-            'created_by' => $userId,
-        ]);
-
-        $clientFolder = null;
         if ($invoice->client) {
-            $clientFolder = Folder::where('parent_id', $root->id)
-                ->where('name', 'like', $invoice->client->reference_no.'%')
-                ->first();
-        }
-
-        if (! $clientFolder && $invoice->client) {
-            $name = trim($invoice->client->reference_no.' - '.$invoice->client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $name,
-                'slug' => Str::slug($name) ?: 'client-'.$invoice->client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
+            return $this->folders->clientSubfolder($invoice->client, 'Invoices', $userId);
         }
 
         return Folder::firstOrCreate(
-            ['name' => 'Invoices', 'parent_id' => $clientFolder?->id],
-            ['slug' => Str::slug(($clientFolder?->name ?? 'global').' Invoices'), 'is_active' => true, 'created_by' => $userId],
+            ['name' => 'Invoices', 'parent_id' => null],
+            ['slug' => 'invoices', 'is_active' => true, 'created_by' => $userId],
         );
     }
 }

@@ -86,3 +86,14 @@ Artisan::command('folders:archive-converted-leads', function (FolderService $ser
 
     $this->info("Moved the folder tree for {$moved} already-converted lead(s).");
 })->purpose('One-off backfill: move already-converted leads\' folder trees into Moved > Common Users');
+
+Artisan::command('folders:repair-managed-structure {--user-id=}', function (FolderService $service) {
+    $result = $service->repairManagedStructure(
+        $this->option('user-id') ? (int) $this->option('user-id') : null,
+    );
+
+    $this->info(
+        "Folder structure repaired. Clients: {$result['clients_repaired']}, leads: {$result['leads_repaired']}, "
+        ."folders removed: {$result['folders_removed']}, files moved: {$result['files_moved']}."
+    );
+})->purpose('One-off backfill: merge malformed owner folders into Clients/Common Users > country > owner trees');

@@ -10,6 +10,7 @@ use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientAdminSummary;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use ZipArchive;
 
 class AdminSummaryDocumentService
@@ -39,6 +40,10 @@ class AdminSummaryDocumentService
         'If you donâ€™t have refusal provide date' => 'refusal_provide_date',
         'Last 6 Month Bank Statement Provided?' => 'last_6_month_bank_statement_provided',
     ];
+
+    public function __construct(private FolderService $folders)
+    {
+    }
 
     public function generate(Client $client, ClientAdminSummary $summary, int $userId): File
     {
@@ -185,33 +190,6 @@ class AdminSummaryDocumentService
 
     private function adminSummaryFolder(Client $client, int $userId): Folder
     {
-        $root = Folder::firstOrCreate(
-            ['name' => 'Clients', 'parent_id' => null],
-            ['slug' => 'clients', 'is_active' => true, 'created_by' => $userId],
-        );
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $clientFolderName = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $clientFolderName,
-                'slug' => Str::slug($clientFolderName) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
-        return Folder::firstOrCreate(
-            ['name' => 'Admin Summary', 'parent_id' => $clientFolder->id],
-            [
-                'slug' => Str::slug($clientFolder->name.' Admin Summary'),
-                'is_active' => true,
-                'created_by' => $userId,
-            ],
-        );
+        return $this->folders->clientSubfolder($client, 'Admin Summary', $userId);
     }
 }

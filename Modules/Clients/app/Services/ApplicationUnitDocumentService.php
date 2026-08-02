@@ -10,6 +10,7 @@ use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientApplicationUnit;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use ZipArchive;
 
 class ApplicationUnitDocumentService
@@ -137,6 +138,10 @@ class ApplicationUnitDocumentService
         'Additional Applicant Information For Canada' => 'canada_additional_information',
         'Reason For Return: (Employment Commitment, Family Responsibility, Property / Assets, Community Involvement)' => 'home_country_ties',
     ];
+
+    public function __construct(private FolderService $folders)
+    {
+    }
 
     public function generate(Client $client, ClientApplicationUnit $applicationUnit, int $userId): File
     {
@@ -283,33 +288,6 @@ class ApplicationUnitDocumentService
 
     private function applicationUnitFolder(Client $client, int $userId): Folder
     {
-        $root = Folder::firstOrCreate(
-            ['name' => 'Clients', 'parent_id' => null],
-            ['slug' => 'clients', 'is_active' => true, 'created_by' => $userId],
-        );
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $clientFolderName = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $clientFolderName,
-                'slug' => Str::slug($clientFolderName) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
-        return Folder::firstOrCreate(
-            ['name' => 'Application Unit', 'parent_id' => $clientFolder->id],
-            [
-                'slug' => Str::slug($clientFolder->name.' Application Unit'),
-                'is_active' => true,
-                'created_by' => $userId,
-            ],
-        );
+        return $this->folders->clientSubfolder($client, 'Application Unit', $userId);
     }
 }

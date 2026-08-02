@@ -196,6 +196,70 @@ class FolderService extends BaseService
         return $this->createClientFolderTree($client, (int) ($userId ?? $client->created_by ?? 1));
     }
 
+    public function repairManagedStructure(?int $userId = null): array
+    {
+        $result = [
+            'clients_repaired' => 0,
+            'leads_repaired' => 0,
+            'folders_removed' => 0,
+            'files_moved' => 0,
+        ];
+
+        Client::query()->chunkById(50, function ($clients) use (&$result, $userId) {
+            foreach ($clients as $client) {
+                $before = $result;
+
+                DB::transaction(function () use ($client, &$result, $userId) {
+                    $clientRoot = $this->ensureClientRoot($client, $userId ?? $client->created_by);
+                    $this->fillOwnedSubfolders($clientRoot, $client->id, null, (int) ($userId ?? $client->created_by ?? 1));
+
+                    $this->mergeMalformedOwnerFolders(
+                        self::CLIENTS_ROOT,
+                        $client->reference_no,
+                        $clientRoot,
+                        $client->id,
+                        null,
+                        $result,
+                        $userId ?? $client->created_by,
+                    );
+                });
+
+                if ($result['folders_removed'] !== $before['folders_removed'] || $result['files_moved'] !== $before['files_moved']) {
+                    $result['clients_repaired']++;
+                }
+            }
+        });
+
+        CommonUser::query()
+            ->where('status', '!=', 'converted')
+            ->chunkById(50, function ($leads) use (&$result, $userId) {
+                foreach ($leads as $lead) {
+                    $before = $result;
+
+                    DB::transaction(function () use ($lead, &$result, $userId) {
+                        $leadRoot = $this->ensureCommonUserRoot($lead, $userId ?? $lead->created_by);
+                        $this->fillOwnedSubfolders($leadRoot, null, $lead->id, (int) ($userId ?? $lead->created_by ?? 1));
+
+                        $this->mergeMalformedOwnerFolders(
+                            self::COMMON_USERS_ROOT,
+                            'Lead #'.$lead->id,
+                            $leadRoot,
+                            null,
+                            $lead->id,
+                            $result,
+                            $userId ?? $lead->created_by,
+                        );
+                    });
+
+                    if ($result['folders_removed'] !== $before['folders_removed'] || $result['files_moved'] !== $before['files_moved']) {
+                        $result['leads_repaired']++;
+                    }
+                }
+            });
+
+        return $result;
+    }
+
     private function ensureMovedCommonUsersCountry(?string $country, ?int $userId): Folder
     {
         $movedRoot = $this->ensureNamedGlobalRoot(self::MOVED_ROOT, $userId);
@@ -318,6 +382,74 @@ class FolderService extends BaseService
             ['name' => $name, 'parent_id' => null],
             ['slug' => Str::slug($name), 'is_active' => true, 'scope' => 'global', 'created_by' => $userId],
         );
+    }
+
+    private function mergeMalformedOwnerFolders(
+        string $systemRootName,
+        string $namePrefix,
+        Folder $targetRoot,
+        ?int $clientId,
+        ?int $commonUserId,
+        array &$result,
+        ?int $userId,
+    ): void {
+        $systemRoot = Folder::where('name', $systemRootName)->whereNull('parent_id')->first();
+
+        if (! $systemRoot) {
+            return;
+        }
+
+        Folder::where('parent_id', $systemRoot->id)
+            ->where('name', 'like', $namePrefix.'%')
+            ->whereKeyNot($targetRoot->id)
+            ->where(function ($query) use ($clientId, $commonUserId) {
+                if ($clientId) {
+                    $query->where('client_id', $clientId)
+                        ->orWhere(function ($query) {
+                            $query->whereNull('client_id')->whereNull('common_user_id');
+                        });
+
+                    return;
+                }
+
+                $query->where('common_user_id', $commonUserId)
+                    ->orWhere(function ($query) {
+                        $query->whereNull('client_id')->whereNull('common_user_id');
+                    });
+            })
+            ->get()
+            ->each(function (Folder $malformed) use ($targetRoot, $clientId, $commonUserId, &$result, $userId) {
+                $this->mergeFolderInto($malformed, $targetRoot, $clientId, $commonUserId, $result, $userId);
+            });
+    }
+
+    private function mergeFolderInto(
+        Folder $source,
+        Folder $target,
+        ?int $clientId,
+        ?int $commonUserId,
+        array &$result,
+        ?int $userId,
+    ): void {
+        $moved = DB::table('files')
+            ->where('folder_id', $source->id)
+            ->update([
+                'folder_id' => $target->id,
+                'client_id' => $clientId,
+                'common_user_id' => $commonUserId,
+            ]);
+        $result['files_moved'] += $moved;
+
+        $source->children()->get()->each(function (Folder $child) use ($target, $clientId, $commonUserId, &$result, $userId) {
+            $targetChild = $this->ensureOwnedChildFolder($target, $child->name, $clientId, $commonUserId, (int) ($userId ?? 1));
+            $this->mergeFolderInto($child, $targetChild, $clientId, $commonUserId, $result, $userId);
+        });
+
+        $source->refresh();
+        if (! $source->files()->exists() && ! $source->children()->exists()) {
+            $source->delete();
+            $result['folders_removed']++;
+        }
     }
 
     /**

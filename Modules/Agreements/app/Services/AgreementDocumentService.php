@@ -87,30 +87,6 @@ class AgreementDocumentService
             );
         }
 
-        $root = Folder::firstOrCreate(['name' => 'Clients', 'parent_id' => null], [
-            'slug' => 'clients',
-            'is_active' => true,
-            'created_by' => $userId,
-        ]);
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $name = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $name,
-                'slug' => Str::slug($name) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
-        return Folder::firstOrCreate(
-            ['name' => 'Agreements', 'parent_id' => $clientFolder->id],
-            ['slug' => Str::slug($clientFolder->name.' Agreements'), 'is_active' => true, 'created_by' => $userId],
-        );
+        return $this->folders->clientSubfolder($client, 'Agreements', $userId);
     }
 }

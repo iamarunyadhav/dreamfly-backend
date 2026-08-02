@@ -6,12 +6,12 @@ use App\Support\Service\BaseService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Modules\Clients\Models\Client;
 use Modules\Files\Services\FileService;
 use Modules\Finance\Models\LedgerEntry;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use Modules\Invoices\Models\Invoice;
 use Modules\Payments\Models\Payment;
 use Modules\Payments\Repositories\Contracts\PaymentRepositoryInterface;
@@ -24,6 +24,7 @@ class PaymentService extends BaseService
     public function __construct(
         PaymentRepositoryInterface $repository,
         private \Modules\Communications\Services\AlertDispatcher $alerts,
+        private FolderService $folders,
     ) {
         parent::__construct($repository);
     }
@@ -159,31 +160,7 @@ class PaymentService extends BaseService
             );
         }
 
-        $root = Folder::firstOrCreate(['name' => 'Clients', 'parent_id' => null], [
-            'slug' => 'clients',
-            'is_active' => true,
-            'created_by' => $userId,
-        ]);
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $name = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $name,
-                'slug' => Str::slug($name) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
-        return Folder::firstOrCreate(
-            ['name' => 'Payments', 'parent_id' => $clientFolder->id],
-            ['slug' => Str::slug($clientFolder->name.' Payments'), 'is_active' => true, 'created_by' => $userId],
-        );
+        return $this->folders->clientSubfolder($client, 'Payments', $userId);
     }
 
     /**

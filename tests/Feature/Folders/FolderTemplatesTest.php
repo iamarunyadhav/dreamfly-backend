@@ -294,4 +294,50 @@ class FolderTemplatesTest extends TestCase
         // count must roll up from its Applicant Documents child.
         $this->assertSame(1, $clientNode['files_count']);
     }
+
+    public function test_repair_command_merges_legacy_client_folders_into_country_tree(): void
+    {
+        $user = $this->staff('folders.create');
+        $client = $this->client('DF-156-2026');
+        app(FolderService::class)->createClientFolderTree($client, $user->id);
+
+        $clientsRoot = Folder::where('name', 'Clients')->whereNull('parent_id')->firstOrFail();
+        $legacyClientRoot = Folder::create([
+            'name' => 'DF-156-2026 - Folder Client',
+            'slug' => 'legacy-df-156-2026-folder-client',
+            'parent_id' => $clientsRoot->id,
+            'scope' => 'global',
+            'is_active' => true,
+            'created_by' => $user->id,
+        ]);
+        $legacyAdminSummary = Folder::create([
+            'name' => 'Admin Summary',
+            'slug' => 'legacy-admin-summary',
+            'parent_id' => $legacyClientRoot->id,
+            'scope' => 'global',
+            'is_active' => true,
+            'created_by' => $user->id,
+        ]);
+        $file = File::create([
+            'folder_id' => $legacyAdminSummary->id,
+            'name' => 'legacy-summary.pdf',
+            'original_name' => 'legacy-summary.pdf',
+            'disk' => 'local',
+            'path' => 'documents/legacy-summary.pdf',
+            'extension' => 'pdf',
+            'mime_type' => 'application/pdf',
+            'size' => 1000,
+            'is_current' => true,
+        ]);
+
+        app(FolderService::class)->repairManagedStructure($user->id);
+
+        $canonicalAdminSummary = Folder::where('client_id', $client->id)
+            ->where('name', 'Admin Summary')
+            ->firstOrFail();
+        $this->assertSame($canonicalAdminSummary->id, $file->refresh()->folder_id);
+        $this->assertSame($client->id, $file->client_id);
+        $this->assertDatabaseMissing('folders', ['id' => $legacyClientRoot->id]);
+        $this->assertDatabaseMissing('folders', ['id' => $legacyAdminSummary->id]);
+    }
 }

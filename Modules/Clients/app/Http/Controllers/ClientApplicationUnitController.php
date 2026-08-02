@@ -20,7 +20,7 @@ use Modules\Files\Http\Resources\FileResource;
 use Modules\Files\Models\File;
 use Modules\Files\Services\FileService;
 use Modules\Folders\Models\Folder;
-use Illuminate\Support\Str;
+use Modules\Folders\Services\FolderService;
 use Modules\Workflows\Models\CaseStep;
 use Modules\Workflows\Services\CaseStepService;
 
@@ -130,7 +130,7 @@ class ClientApplicationUnitController extends Controller
         ));
     }
 
-    public function uploadChecklistFile(Request $request, Client $client, FileService $files, ApplicationChecklistRuntimeService $runtime)
+    public function uploadChecklistFile(Request $request, Client $client, FileService $files, ApplicationChecklistRuntimeService $runtime, FolderService $folders)
     {
         if (! ($request->user()?->can('application-unit.update') || $request->user()?->can('files.create'))) {
             abort(403);
@@ -157,7 +157,7 @@ class ClientApplicationUnitController extends Controller
             ]);
         }
 
-        return DB::transaction(function () use ($request, $client, $files, $applicationUnit, $column, $items, $validated, $runtime) {
+        return DB::transaction(function () use ($request, $client, $files, $applicationUnit, $column, $items, $validated, $runtime, $folders) {
             $existingFile = ($existingId = $items[$validated['index']]['linked_file_id'] ?? null)
                 ? File::find($existingId)
                 : null;
@@ -172,7 +172,7 @@ class ClientApplicationUnitController extends Controller
                     note: 'Replaced from the '.$validated['kind'].' checklist.',
                 );
             } else {
-                $folder = $this->checklistFolder($client, $validated['kind'], $request->user()->id);
+                $folder = $this->checklistFolder($client, $validated['kind'], $request->user()->id, $folders);
                 $file = $files->uploadForClientFolder(
                     uploadedFile: $request->file('file'),
                     clientId: $client->id,
@@ -263,41 +263,14 @@ class ClientApplicationUnitController extends Controller
         });
     }
 
-    private function checklistFolder(Client $client, string $kind, int $userId): Folder
+    private function checklistFolder(Client $client, string $kind, int $userId, FolderService $folders): Folder
     {
-        $root = Folder::firstOrCreate(
-            ['name' => 'Clients', 'parent_id' => null],
-            ['slug' => 'clients', 'is_active' => true, 'created_by' => $userId],
-        );
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $clientFolderName = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $clientFolderName,
-                'slug' => Str::slug($clientFolderName) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
         $folderName = match ($kind) {
             'inviter' => 'Inviter Documents',
             'internal' => 'Application Unit',
             default => 'Applicant Documents',
         };
 
-        return Folder::firstOrCreate(
-            ['name' => $folderName, 'parent_id' => $clientFolder->id],
-            [
-                'slug' => Str::slug($clientFolder->name.' '.$folderName),
-                'is_active' => true,
-                'created_by' => $userId,
-            ],
-        );
+        return $folders->clientSubfolder($client, $folderName, $userId);
     }
 }

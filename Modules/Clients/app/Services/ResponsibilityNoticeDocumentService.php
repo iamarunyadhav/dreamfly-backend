@@ -13,6 +13,7 @@ use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientResponsibilityNotice;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use Spatie\Browsershot\Browsershot;
 use Throwable;
 
@@ -23,6 +24,10 @@ use Throwable;
  */
 class ResponsibilityNoticeDocumentService
 {
+    public function __construct(private FolderService $folders)
+    {
+    }
+
     public function generate(Client $client, ClientResponsibilityNotice $notice, int $userId): File
     {
         $folder = $this->noticeFolder($client, $userId);
@@ -161,33 +166,6 @@ class ResponsibilityNoticeDocumentService
 
     private function noticeFolder(Client $client, int $userId): Folder
     {
-        $root = Folder::firstOrCreate(
-            ['name' => 'Clients', 'parent_id' => null],
-            ['slug' => 'clients', 'is_active' => true, 'created_by' => $userId],
-        );
-
-        $clientFolder = Folder::where('parent_id', $root->id)
-            ->where('name', 'like', $client->reference_no.'%')
-            ->first();
-
-        if (! $clientFolder) {
-            $clientFolderName = trim($client->reference_no.' - '.$client->full_name);
-            $clientFolder = Folder::create([
-                'name' => $clientFolderName,
-                'slug' => Str::slug($clientFolderName) ?: 'client-'.$client->id,
-                'parent_id' => $root->id,
-                'is_active' => true,
-                'created_by' => $userId,
-            ]);
-        }
-
-        return Folder::firstOrCreate(
-            ['name' => 'Final Documents', 'parent_id' => $clientFolder->id],
-            [
-                'slug' => Str::slug($clientFolder->name.' Final Documents'),
-                'is_active' => true,
-                'created_by' => $userId,
-            ],
-        );
+        return $this->folders->clientSubfolder($client, 'Final Documents', $userId);
     }
 }
