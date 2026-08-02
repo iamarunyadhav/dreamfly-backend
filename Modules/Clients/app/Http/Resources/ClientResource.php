@@ -4,6 +4,7 @@ namespace Modules\Clients\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Files\Http\Resources\FileResource;
 
 class ClientResource extends JsonResource
 {
@@ -25,6 +26,8 @@ class ClientResource extends JsonResource
             'agreement_amount' => $this->agreement_amount,
             'paid_amount' => $this->paid_amount,
             'balance' => $this->balance,
+            'profile_photo_file_id' => $this->profile_photo_file_id,
+            'profile_photo' => new FileResource($this->whenLoaded('profilePhoto')),
             'assigned_supervisor_id' => $this->assigned_supervisor_id,
             'current_stage' => $this->current_stage,
             'visa_outcome' => $this->visa_outcome,
@@ -39,6 +42,7 @@ class ClientResource extends JsonResource
             'created_by' => $this->created_by,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'deleted_at' => $this->deleted_at,
         ];
     }
 }

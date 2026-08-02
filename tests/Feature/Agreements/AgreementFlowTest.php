@@ -5,8 +5,10 @@ namespace Tests\Feature\Agreements;
 use App\Models\User;
 use Modules\Agreements\Models\Agreement;
 use Modules\Clients\Models\Client;
+use Modules\CommonUsers\Models\CommonUser;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 class AgreementFlowTest extends TestCase
@@ -77,14 +79,18 @@ class AgreementFlowTest extends TestCase
         $this->assertFileExists(storage_path('app/private/'.$file->path));
     }
 
-    public function test_generate_requires_a_folder(): void
+    public function test_generate_without_folder_uses_default_destination(): void
     {
         $user = $this->user(['agreements.generate']);
         $agreement = $this->agreement($user);
 
         $this->actingAs($user)->postJson("/api/v1/agreements/{$agreement->id}/generate", [])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('folder_id');
+            ->assertCreated()
+            ->assertJsonPath('data.file.extension', 'pdf');
+
+        $agreement->refresh();
+        $this->assertNotNull($agreement->generated_file_id);
+        $this->assertSame('Agreements', Folder::find(File::find($agreement->generated_file_id)->folder_id)->name);
     }
 
     public function test_generate_requires_permission(): void
@@ -95,6 +101,119 @@ class AgreementFlowTest extends TestCase
 
         $this->actingAs($user)->postJson("/api/v1/agreements/{$agreement->id}/generate", ['folder_id' => $folder->id])
             ->assertForbidden();
+    }
+
+    public function test_generate_cannot_duplicate_an_already_saved_agreement(): void
+    {
+        $user = $this->user(['agreements.generate']);
+        $agreement = $this->agreement($user);
+        $folder = Folder::create(['name' => 'Agreements', 'slug' => 'agreements-dest', 'is_active' => true, 'created_by' => $user->id]);
+
+        $this->actingAs($user)->postJson("/api/v1/agreements/{$agreement->id}/generate", [
+            'folder_id' => $folder->id,
+        ])->assertCreated();
+
+        $this->actingAs($user)->postJson("/api/v1/agreements/{$agreement->id}/generate", [
+            'folder_id' => $folder->id,
+        ])->assertStatus(422)->assertJsonValidationErrors('agreement');
+
+        $this->assertSame(1, File::count());
+    }
+
+    public function test_create_rejects_duplicate_person_identifier(): void
+    {
+        $user = $this->user(['agreements.create']);
+        Agreement::create([
+            'reference_no' => 'DF-AGR-DUP-1',
+            'client_name' => 'Existing Client',
+            'client_nic' => '912581624V',
+            'client_passport_no' => 'EF123455111',
+            'total_fee' => 100000,
+            'advance_paid' => 0,
+            'status' => 'draft',
+            'created_by' => $user->id,
+        ]);
+
+        $payload = [
+            'client_name' => 'Same Person',
+            'client_nic' => '912581624V',
+            'client_passport_no' => 'EF123455111',
+            'total_fee' => 200000,
+            'advance_paid' => 0,
+        ];
+
+        $this->actingAs($user)->postJson('/api/v1/agreements', $payload)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['client_nic', 'client_passport_no']);
+    }
+
+    public function test_create_rejects_second_agreement_for_same_common_user(): void
+    {
+        $user = $this->user(['agreements.create']);
+        $lead = CommonUser::create([
+            'full_name' => 'Lead Person',
+            'phone' => '+94770000111',
+            'nic' => '902222222V',
+            'passport_no' => 'P222222',
+            'country' => 'United Kingdom',
+            'service_category' => 'visit_visa',
+            'agreement_amount' => 200000,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+
+        Agreement::create([
+            'reference_no' => 'DF-AGR-LEAD-1',
+            'common_user_id' => $lead->id,
+            'client_name' => $lead->full_name,
+            'client_nic' => $lead->nic,
+            'client_passport_no' => $lead->passport_no,
+            'total_fee' => 200000,
+            'advance_paid' => 0,
+            'status' => 'draft',
+            'created_by' => $user->id,
+        ]);
+
+        $this->actingAs($user)->postJson('/api/v1/agreements', [
+            'common_user_id' => $lead->id,
+            'client_name' => $lead->full_name,
+            'client_nic' => $lead->nic,
+            'client_passport_no' => $lead->passport_no,
+            'country' => $lead->country,
+            'total_fee' => 200000,
+            'advance_paid' => 0,
+        ])->assertStatus(422)->assertJsonValidationErrors(['common_user_id', 'client_nic', 'client_passport_no']);
+    }
+
+    public function test_signed_agreement_requires_generated_file_and_cannot_be_uploaded_twice(): void
+    {
+        $user = $this->user(['agreements.edit', 'agreements.generate']);
+        $agreement = $this->agreement($user);
+        $folder = Folder::create(['name' => 'Agreements', 'slug' => 'agreements-signed-test', 'is_active' => true, 'created_by' => $user->id]);
+
+        $this->actingAs($user)
+            ->post("/api/v1/agreements/{$agreement->id}/signed-file", [
+                'file' => UploadedFile::fake()->create('signed.pdf', 100, 'application/pdf'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('agreement');
+
+        $this->actingAs($user)->postJson("/api/v1/agreements/{$agreement->id}/generate", [
+            'folder_id' => $folder->id,
+        ])->assertCreated();
+
+        $this->actingAs($user)
+            ->post("/api/v1/agreements/{$agreement->id}/signed-file", [
+                'file' => UploadedFile::fake()->create('signed.pdf', 100, 'application/pdf'),
+            ])
+            ->assertCreated();
+
+        $this->actingAs($user)
+            ->post("/api/v1/agreements/{$agreement->id}/signed-file", [
+                'file' => UploadedFile::fake()->create('signed-again.pdf', 100, 'application/pdf'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('file');
     }
 
     public function test_share_records_package_message_with_signed_link_and_bank_details(): void

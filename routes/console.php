@@ -77,12 +77,12 @@ Artisan::command('folders:archive-converted-leads', function (FolderService $ser
     CommonUser::where('status', 'converted')
         ->chunkById(50, function ($leads) use ($service, &$moved) {
             foreach ($leads as $lead) {
-                $folder = $service->archiveLeadFolderTree($lead);
+                $folder = $service->moveConvertedLeadFolderTree($lead);
                 if ($folder && $folder->wasChanged('parent_id')) {
                     $moved++;
                 }
             }
         });
 
-    $this->info("Archived the folder tree for {$moved} already-converted lead(s).");
-})->purpose('One-off backfill: move already-converted leads\' folder trees into Common Users > Archived');
+    $this->info("Moved the folder tree for {$moved} already-converted lead(s).");
+})->purpose('One-off backfill: move already-converted leads\' folder trees into Moved > Common Users');

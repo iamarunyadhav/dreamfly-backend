@@ -28,6 +28,14 @@ class AgreementRepository extends BaseRepository implements AgreementRepositoryI
             $query->where('status', $filters['status']);
         }
 
+        if (! empty($filters['client_id'])) {
+            $query->where('client_id', $filters['client_id']);
+        }
+
+        if (! empty($filters['common_user_id'])) {
+            $query->where('common_user_id', $filters['common_user_id']);
+        }
+
         return $query->latest();
     }
 }

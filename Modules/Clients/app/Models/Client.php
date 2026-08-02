@@ -29,6 +29,7 @@ class Client extends Model
         'service_category',
         'agreement_amount',
         'paid_amount',
+        'profile_photo_file_id',
         'assigned_supervisor_id',
         'current_stage',
         'visa_outcome',
@@ -107,6 +108,11 @@ class Client extends Model
     public function decisionFile(): BelongsTo
     {
         return $this->belongsTo(\Modules\Files\Models\File::class, 'decision_file_id');
+    }
+
+    public function profilePhoto(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Files\Models\File::class, 'profile_photo_file_id');
     }
 
     public function documents(): HasMany

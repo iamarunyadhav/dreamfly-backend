@@ -14,6 +14,7 @@ class Agreement extends Model
     protected $fillable = [
         'reference_no',
         'client_id',
+        'common_user_id',
         'client_name',
         'client_address',
         'client_phone',
@@ -26,7 +27,13 @@ class Agreement extends Model
         'advance_paid',
         'status',
         'generated_file_id',
+        'signed_file_id',
+        'signed_at',
         'created_by',
+    ];
+
+    protected $casts = [
+        'signed_at' => 'datetime',
     ];
 
     public function getBalanceAttribute(): int
@@ -44,8 +51,18 @@ class Agreement extends Model
         return $this->belongsTo(\Modules\Clients\Models\Client::class, 'client_id');
     }
 
+    public function commonUser(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\CommonUsers\Models\CommonUser::class, 'common_user_id');
+    }
+
     public function generatedFile(): BelongsTo
     {
         return $this->belongsTo(\Modules\Files\Models\File::class, 'generated_file_id');
+    }
+
+    public function signedFile(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Files\Models\File::class, 'signed_file_id');
     }
 }

@@ -32,7 +32,7 @@ class ClientProfileController extends Controller
 
     public function show(Request $request, Client $client)
     {
-        $client->load(['adminSummary', 'applicationUnit', 'documentationTasks.assignedUser']);
+        $client->load(['profilePhoto', 'adminSummary', 'applicationUnit', 'documentationTasks.assignedUser']);
 
         return $this->ok([
             'client' => new ClientResource($client),

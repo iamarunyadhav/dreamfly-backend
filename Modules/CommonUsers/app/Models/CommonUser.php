@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Files\Models\File;
+use Modules\Agreements\Models\Agreement;
+use Modules\Payments\Models\Payment;
 
 class CommonUser extends Model
 {
@@ -27,6 +29,7 @@ class CommonUser extends Model
         'service_category',
         'agreement_amount',
         'paid_amount',
+        'profile_photo_file_id',
         'status',
         'created_by',
     ];
@@ -41,9 +44,24 @@ class CommonUser extends Model
         return $this->hasMany(File::class);
     }
 
+    public function profilePhoto(): BelongsTo
+    {
+        return $this->belongsTo(File::class, 'profile_photo_file_id');
+    }
+
     public function verifiedDocuments(): HasMany
     {
         return $this->hasMany(File::class)->where('verified', true);
+    }
+
+    public function agreements(): HasMany
+    {
+        return $this->hasMany(Agreement::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
     }
 
     public function creator(): BelongsTo

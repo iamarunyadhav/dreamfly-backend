@@ -3,6 +3,7 @@
 namespace Tests\Feature\Clients;
 
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientAdminSummary;
@@ -128,5 +129,40 @@ class ClientProfileTest extends TestCase
             'client_id' => $client->id,
             'body' => 'Should not save',
         ]);
+    }
+
+    public function test_client_profile_photo_upload_sets_explicit_profile_photo(): void
+    {
+        Storage::fake('local');
+
+        $user = User::factory()->create(['status' => 'active']);
+        $user->givePermissionTo(['clients.view', 'clients.edit']);
+        $client = Client::create([
+            'reference_no' => 'DF-502-2026',
+            'full_name' => 'Photo Client',
+            'country' => 'Canada',
+            'service_category' => 'visit_visa',
+        ]);
+
+        $response = $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/profile-photo", [
+            'file' => UploadedFile::fake()->image('photo.png')->size(100),
+        ]);
+
+        $response->assertCreated();
+        $fileId = $response->json('data.id');
+        $this->assertDatabaseHas('clients', [
+            'id' => $client->id,
+            'profile_photo_file_id' => $fileId,
+        ]);
+        $this->assertDatabaseHas('files', [
+            'id' => $fileId,
+            'client_id' => $client->id,
+            'mime_type' => 'image/png',
+        ]);
+
+        $this->actingAs($user)
+            ->getJson("/api/v1/clients/{$client->id}/profile")
+            ->assertOk()
+            ->assertJsonPath('data.client.profile_photo.id', $fileId);
     }
 }

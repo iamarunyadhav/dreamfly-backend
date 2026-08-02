@@ -25,7 +25,7 @@ class PaymentsController extends Controller
         $payments = $this->service->paginate(
             perPage: (int) $request->integer('per_page', 15),
             with: ['receiptFile'],
-            filters: $request->only(['client_id', 'agreement_id', 'invoice_id', 'method', 'status']),
+            filters: $request->only(['client_id', 'common_user_id', 'agreement_id', 'invoice_id', 'method', 'status']),
         );
 
         return $this->ok(PaymentResource::collection($payments));

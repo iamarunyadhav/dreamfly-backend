@@ -4,6 +4,7 @@ namespace Modules\CommonUsers\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Files\Http\Resources\FileResource;
 
 class CommonUserResource extends JsonResource
 {
@@ -24,12 +25,15 @@ class CommonUserResource extends JsonResource
             'agreement_amount' => $this->agreement_amount,
             'paid_amount' => $this->paid_amount,
             'balance' => $this->balance,
+            'profile_photo_file_id' => $this->profile_photo_file_id,
+            'profile_photo' => new FileResource($this->whenLoaded('profilePhoto')),
             'status' => $this->status,
             'documents_count' => $this->whenCounted('documents'),
             'verified_documents_count' => $this->whenCounted('verifiedDocuments'),
             'created_by' => $this->created_by,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
+            'deleted_at' => $this->deleted_at,
         ];
     }
 }

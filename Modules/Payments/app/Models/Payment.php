@@ -16,6 +16,7 @@ class Payment extends Model
 
     protected $fillable = [
         'client_id',
+        'common_user_id',
         'agreement_id',
         'invoice_id',
         'amount',
@@ -41,6 +42,11 @@ class Payment extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function commonUser(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\CommonUsers\Models\CommonUser::class);
     }
 
     public function receiptFile(): BelongsTo

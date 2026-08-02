@@ -30,6 +30,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::get('clients', [ClientsController::class, 'index'])->middleware('permission:clients.view')->name('clients.index');
     Route::post('clients', [ClientsController::class, 'store'])->middleware('permission:clients.create')->name('clients.store');
     Route::get('clients/{client}/profile', [ClientProfileController::class, 'show'])->middleware('permission:clients.view')->name('clients.profile.show');
+    Route::post('clients/{client}/profile-photo', [ClientsController::class, 'uploadProfilePhoto'])->middleware('permission:clients.edit')->name('clients.profile-photo.store');
     Route::get('clients/{client}/notes', [ClientNotesController::class, 'index'])->middleware('permission:clients.view')->name('clients.notes.index');
     Route::post('clients/{client}/notes', [ClientNotesController::class, 'store'])->middleware('permission:clients.edit')->name('clients.notes.store');
     Route::delete('clients/{client}/notes/{note}', [ClientNotesController::class, 'destroy'])->middleware('permission:clients.edit')->name('clients.notes.destroy');
@@ -124,4 +125,6 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::put('clients/{client}', [ClientsController::class, 'update'])->middleware('permission:clients.edit')->name('clients.update');
     Route::patch('clients/{client}', [ClientsController::class, 'update'])->middleware('permission:clients.edit');
     Route::delete('clients/{client}', [ClientsController::class, 'destroy'])->middleware('permission:clients.delete')->name('clients.destroy');
+    Route::post('clients/{clientId}/restore', [ClientsController::class, 'restore'])
+        ->middleware('permission:clients.edit')->name('clients.restore');
 });

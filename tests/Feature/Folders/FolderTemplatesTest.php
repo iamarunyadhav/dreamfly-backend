@@ -192,7 +192,7 @@ class FolderTemplatesTest extends TestCase
         ]);
     }
 
-    public function test_archiving_a_converted_leads_folder_tree_moves_it_under_common_users_archived(): void
+    public function test_moving_a_converted_leads_folder_tree_moves_it_under_moved_common_users(): void
     {
         $user = $this->staff('folders.create');
         $service = app(FolderService::class);
@@ -209,26 +209,28 @@ class FolderTemplatesTest extends TestCase
         $leadRootBefore = Folder::where('common_user_id', $lead->id)->whereNull('client_id')
             ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
             ->first();
-        $this->assertNotSame('Archived', $leadRootBefore->parent->name);
+        $this->assertNotSame('Moved', $leadRootBefore->parent->name);
 
-        $archived = $service->archiveLeadFolderTree($lead, $user->id);
+        $moved = $service->moveConvertedLeadFolderTree($lead, $user->id);
 
-        $this->assertNotNull($archived);
-        $this->assertSame($leadRootBefore->id, $archived->id);
+        $this->assertNotNull($moved);
+        $this->assertSame($leadRootBefore->id, $moved->id);
 
-        $commonUsersRoot = Folder::where('name', 'Common Users')->whereNull('parent_id')->first();
-        $archivedFolder = Folder::where('name', 'Archived')->where('parent_id', $commonUsersRoot->id)->first();
-        $this->assertNotNull($archivedFolder);
-        $this->assertNotNull($archivedFolder->description);
+        $movedRoot = Folder::where('name', 'Moved')->whereNull('parent_id')->first();
+        $movedCommonUsers = Folder::where('name', 'Common Users')->where('parent_id', $movedRoot->id)->first();
+        $this->assertNotNull($movedCommonUsers);
+        $this->assertNotNull($movedCommonUsers->description);
+        $movedCountry = Folder::where('name', 'Canada')->where('parent_id', $movedCommonUsers->id)->first();
+        $this->assertNotNull($movedCountry);
 
-        $this->assertSame($archivedFolder->id, $archived->refresh()->parent_id);
+        $this->assertSame($movedCountry->id, $moved->refresh()->parent_id);
 
-        // Idempotent - archiving again does not move it a second time or error.
-        $again = $service->archiveLeadFolderTree($lead, $user->id);
-        $this->assertSame($archivedFolder->id, $again->refresh()->parent_id);
+        // Idempotent - moving again does not move it a second time or error.
+        $again = $service->moveConvertedLeadFolderTree($lead, $user->id);
+        $this->assertSame($movedCountry->id, $again->refresh()->parent_id);
     }
 
-    public function test_archiving_a_lead_with_no_folder_tree_is_a_safe_no_op(): void
+    public function test_moving_a_lead_with_no_folder_tree_is_a_safe_no_op(): void
     {
         $lead = CommonUser::create([
             'full_name' => 'No Folder Lead',
@@ -238,7 +240,7 @@ class FolderTemplatesTest extends TestCase
             'status' => 'converted',
         ]);
 
-        $this->assertNull(app(FolderService::class)->archiveLeadFolderTree($lead));
+        $this->assertNull(app(FolderService::class)->moveConvertedLeadFolderTree($lead));
     }
 
     public function test_folder_tree_endpoint_reports_recursive_file_counts(): void

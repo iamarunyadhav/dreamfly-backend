@@ -14,6 +14,7 @@ class Message extends Model
     protected $fillable = [
         'message_template_id',
         'client_id',
+        'common_user_id',
         'workflow_step',
         'channel',
         'provider',

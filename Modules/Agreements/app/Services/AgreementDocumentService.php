@@ -6,8 +6,10 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Modules\Agreements\Models\Agreement;
 use Modules\Clients\Models\Client;
+use Modules\CommonUsers\Models\CommonUser;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 
 /**
  * Renders the Tamil service agreement to PDF and files it as a real File record
@@ -16,7 +18,7 @@ use Modules\Folders\Models\Folder;
  */
 class AgreementDocumentService
 {
-    public function __construct(protected AgreementPdfService $pdf)
+    public function __construct(protected AgreementPdfService $pdf, protected FolderService $folders)
     {
     }
 
@@ -24,7 +26,11 @@ class AgreementDocumentService
     {
         $folder = $folderId
             ? Folder::findOrFail($folderId)
-            : $this->agreementFolder($agreement->client_id ? Client::find($agreement->client_id) : null, $userId);
+            : $this->agreementFolder(
+                $agreement->client_id ? Client::find($agreement->client_id) : null,
+                $agreement->common_user_id ? CommonUser::find($agreement->common_user_id) : null,
+                $userId,
+            );
 
         $displayName = $this->normalizeFileName($fileName, $agreement);
         $storedName = (Str::slug($agreement->reference_no) ?: 'agreement-'.$agreement->id).'-'.now()->format('YmdHis').'.pdf';
@@ -36,6 +42,7 @@ class AgreementDocumentService
         $file = File::create([
             'folder_id' => $folder->id,
             'client_id' => $agreement->client_id,
+            'common_user_id' => $agreement->common_user_id,
             'name' => $storedName,
             'original_name' => $displayName,
             'disk' => 'local',
@@ -67,8 +74,12 @@ class AgreementDocumentService
         return str_ends_with(strtolower($name), '.pdf') ? $name : $name.'.pdf';
     }
 
-    private function agreementFolder(?Client $client, int $userId): Folder
+    private function agreementFolder(?Client $client, ?CommonUser $lead, int $userId): Folder
     {
+        if ($lead) {
+            return $this->folders->leadSubfolder($lead, 'Unsigned Agreement', $userId);
+        }
+
         if (! $client) {
             return Folder::firstOrCreate(
                 ['name' => 'Agreements', 'parent_id' => null],

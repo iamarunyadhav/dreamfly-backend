@@ -18,12 +18,22 @@ class FolderService extends BaseService
 
     private const COMMON_USERS_ROOT = 'Common Users';
 
+    private const ARCHIVED_ROOT = 'Archived';
+
+    private const MOVED_ROOT = 'Moved';
+
     private const UNSPECIFIED_COUNTRY = 'Unspecified';
 
-    private const ARCHIVED_LEADS_FOLDER = 'Archived';
+    private const ARCHIVED_CLIENTS_FOLDER = 'Clients';
 
-    private const ARCHIVED_LEADS_DESCRIPTION = 'Leads that have been converted to clients. Their documents now live '
-        .'in the client\'s own folder tree - this archive is kept for reference only and is never deleted automatically.';
+    private const ARCHIVED_COMMON_USERS_FOLDER = 'Common Users';
+
+    private const MOVED_COMMON_USERS_FOLDER = 'Common Users';
+
+    private const MOVED_LEADS_DESCRIPTION = 'Leads that were converted to client cases. Their live documents now live '
+        .'in the client folder tree; this moved folder is kept for reference.';
+
+    private const ARCHIVED_DESCRIPTION = 'Deleted records are moved here by source type so they can be restored later.';
 
     public function __construct(FolderRepositoryInterface $repository)
     {
@@ -121,45 +131,112 @@ class FolderService extends BaseService
     }
 
     /**
-     * Relocate a converted lead's own folder tree into "Common Users >
-     * Archived" instead of leaving it sitting under its country folder as if
-     * it were still an active lead - its documents have already been re-filed
-     * into the new client's tree by this point, this just keeps the empty
-     * shell around for reference rather than deleting it.
+     * Converted leads are no longer active common users, but they were not
+     * deleted either. Keep their old lead folder tree under Moved > Common Users
+     * so the Documents tree distinguishes "converted" from "deleted".
      */
-    public function archiveLeadFolderTree(CommonUser $lead, ?int $userId = null): ?Folder
+    public function moveConvertedLeadFolderTree(CommonUser $lead, ?int $userId = null): ?Folder
     {
-        $leadRoot = Folder::where('common_user_id', $lead->id)
-            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
-            ->first();
+        $leadRoot = $this->ownedRoot('common_user_id', $lead->id);
 
         if (! $leadRoot) {
             return null;
         }
 
-        $archivedRoot = $this->ensureArchivedLeadsRoot($userId ?? $leadRoot->created_by);
+        $movedCountry = $this->ensureMovedCommonUsersCountry($lead->country, $userId ?? $leadRoot->created_by);
 
-        if ($leadRoot->parent_id !== $archivedRoot->id) {
-            $leadRoot->update(['parent_id' => $archivedRoot->id]);
+        if ($leadRoot->parent_id !== $movedCountry->id) {
+            $leadRoot->update(['parent_id' => $movedCountry->id]);
         }
 
         return $leadRoot;
     }
 
-    private function ensureArchivedLeadsRoot(?int $userId): Folder
+    public function archiveDeletedLeadFolderTree(CommonUser $lead, ?int $userId = null): ?Folder
     {
-        $commonUsersRoot = $this->ensureNamedGlobalRoot(self::COMMON_USERS_ROOT, $userId);
+        $leadRoot = $this->ownedRoot('common_user_id', $lead->id);
 
-        return Folder::firstOrCreate(
-            ['name' => self::ARCHIVED_LEADS_FOLDER, 'parent_id' => $commonUsersRoot->id],
+        if (! $leadRoot) {
+            return null;
+        }
+
+        $archiveCountry = $this->ensureArchiveCountry(self::ARCHIVED_COMMON_USERS_FOLDER, $lead->country, $userId ?? $leadRoot->created_by);
+
+        if ($leadRoot->parent_id !== $archiveCountry->id) {
+            $leadRoot->update(['parent_id' => $archiveCountry->id]);
+        }
+
+        return $leadRoot;
+    }
+
+    public function archiveDeletedClientFolderTree(Client $client, ?int $userId = null): ?Folder
+    {
+        $clientRoot = $this->ownedRoot('client_id', $client->id);
+
+        if (! $clientRoot) {
+            return null;
+        }
+
+        $archiveCountry = $this->ensureArchiveCountry(self::ARCHIVED_CLIENTS_FOLDER, $client->country, $userId ?? $clientRoot->created_by);
+
+        if ($clientRoot->parent_id !== $archiveCountry->id) {
+            $clientRoot->update(['parent_id' => $archiveCountry->id]);
+        }
+
+        return $clientRoot;
+    }
+
+    public function restoreLeadFolderTree(CommonUser $lead, ?int $userId = null): int
+    {
+        return $this->createLeadFolderTree($lead, (int) ($userId ?? $lead->created_by ?? 1));
+    }
+
+    public function restoreClientFolderTree(Client $client, ?int $userId = null): int
+    {
+        return $this->createClientFolderTree($client, (int) ($userId ?? $client->created_by ?? 1));
+    }
+
+    private function ensureMovedCommonUsersCountry(?string $country, ?int $userId): Folder
+    {
+        $movedRoot = $this->ensureNamedGlobalRoot(self::MOVED_ROOT, $userId);
+        $movedCommonUsers = Folder::firstOrCreate(
+            ['name' => self::MOVED_COMMON_USERS_FOLDER, 'parent_id' => $movedRoot->id],
             [
-                'description' => self::ARCHIVED_LEADS_DESCRIPTION,
-                'slug' => 'common-users-archived',
+                'description' => self::MOVED_LEADS_DESCRIPTION,
+                'slug' => 'moved-common-users',
                 'scope' => 'global',
                 'is_active' => true,
                 'created_by' => $userId,
             ],
         );
+
+        return $this->ensureCountryFolder($movedCommonUsers, $country, $userId);
+    }
+
+    private function ensureArchiveCountry(string $sourceFolder, ?string $country, ?int $userId): Folder
+    {
+        $archiveRoot = $this->ensureNamedGlobalRoot(self::ARCHIVED_ROOT, $userId);
+
+        $sourceRoot = Folder::firstOrCreate(
+            ['name' => $sourceFolder, 'parent_id' => $archiveRoot->id],
+            [
+                'description' => self::ARCHIVED_DESCRIPTION,
+                'slug' => Str::slug(self::ARCHIVED_ROOT.' '.$sourceFolder),
+                'scope' => 'global',
+                'is_active' => true,
+                'created_by' => $userId,
+            ],
+        );
+
+        return $this->ensureCountryFolder($sourceRoot, $country, $userId);
+    }
+
+    private function ownedRoot(string $ownerColumn, int $ownerId): ?Folder
+    {
+        return Folder::where($ownerColumn, $ownerId)
+            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
+            ->orderBy('id')
+            ->first();
     }
 
     /**
@@ -398,7 +475,10 @@ class FolderService extends BaseService
     {
         return [
             'Agreements',
+            'Unsigned Agreement',
+            'Signed Agreement',
             'Payments',
+            'Profile Photo',
             'Admin Summary',
             'Applicant Documents',
             'Inviter Documents',

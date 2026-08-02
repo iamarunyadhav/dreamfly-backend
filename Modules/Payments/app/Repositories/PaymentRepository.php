@@ -20,6 +20,10 @@ class PaymentRepository extends BaseRepository implements PaymentRepositoryInter
             $query->where('client_id', $filters['client_id']);
         }
 
+        if (! empty($filters['common_user_id'])) {
+            $query->where('common_user_id', $filters['common_user_id']);
+        }
+
         if (! empty($filters['agreement_id'])) {
             $query->where('agreement_id', $filters['agreement_id']);
         }
