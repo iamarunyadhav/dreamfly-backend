@@ -18,6 +18,7 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::post('files/{file}/share', [FilesController::class, 'share'])->middleware('permission:communications.send')->name('files.share');
     Route::get('files/{file}/download', [FilesController::class, 'download'])->middleware('permission:files.view')->name('files.download');
     Route::patch('files/{file}/verify', [FilesController::class, 'verify'])->middleware('permission:files.create')->name('files.verify');
+    Route::patch('files/{file}/rename', [FilesController::class, 'rename'])->middleware('permission:files.create')->name('files.rename');
     Route::get('files/{file}/versions', [FilesController::class, 'versions'])->middleware('permission:files.view')->name('files.versions');
     Route::post('files/{file}/versions', [FilesController::class, 'storeVersion'])->middleware('permission:files.upload')->name('files.versions.store');
     Route::delete('files/{file}', [FilesController::class, 'destroy'])->middleware('permission:files.delete')->name('files.destroy');

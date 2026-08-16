@@ -18,6 +18,8 @@ class CaseStepResource extends JsonResource
             'name' => $this->name,
             'order' => $this->order,
             'owner_role' => $this->owner_role,
+            'assigned_user_id' => $this->assigned_user_id,
+            'assigned_user_name' => $this->whenLoaded('assignedUser', fn () => $this->assignedUser?->name),
             'status' => $this->status,
             'duration_days' => $this->duration_days,
             'requires_checklist' => (bool) $this->requires_checklist,

@@ -2,13 +2,13 @@
 
 namespace Modules\Ocr\Services;
 
+use App\Support\Pdf\BrowsershotPdfRenderer;
 use App\Support\Pdf\SimplePdf;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\View;
 use Modules\Files\Models\File;
 use Modules\Ocr\Models\OcrExtraction;
-use Spatie\Browsershot\Browsershot;
 use Throwable;
 
 class OcrPdfService
@@ -53,12 +53,7 @@ class OcrPdfService
         }
 
         try {
-            return Browsershot::html($html)
-                ->format('A4')
-                ->margins(0, 0, 0, 0)
-                ->showBackground()
-                ->waitUntilNetworkIdle()
-                ->pdf();
+            return BrowsershotPdfRenderer::render($html, [0, 0, 0, 0]);
         } catch (Throwable $e) {
             Log::warning('OCR extraction PDF Browsershot render failed, using text fallback.', [
                 'extraction_id' => $extraction->id,

@@ -2,11 +2,11 @@
 
 namespace Modules\Agreements\Services;
 
+use App\Support\Pdf\BrowsershotPdfRenderer;
 use App\Support\Pdf\SimplePdf;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
 use Modules\Agreements\Models\Agreement;
-use Spatie\Browsershot\Browsershot;
 use Throwable;
 
 /**
@@ -29,7 +29,7 @@ class AgreementPdfService
         }
 
         try {
-            return $this->browsershot($html)->pdf();
+            return BrowsershotPdfRenderer::render($html, [12, 10, 12, 10]);
         } catch (Throwable $e) {
             Log::warning('Agreement PDF Browsershot render failed, using text fallback.', [
                 'agreement_id' => $agreement->id,
@@ -53,28 +53,5 @@ class AgreementPdfService
             'Advance Paid: LKR '.number_format($agreement->advance_paid),
             'Balance: LKR '.number_format($agreement->balance),
         ]);
-    }
-
-    private function browsershot(string $html): Browsershot
-    {
-        $browsershot = Browsershot::html($html)
-            ->format('A4')
-            ->margins(12, 10, 12, 10)
-            ->showBackground()
-            ->waitUntilNetworkIdle();
-
-        if ($nodeBinary = config('agreements.pdf.node_binary')) {
-            $browsershot->setNodeBinary($nodeBinary);
-        }
-
-        if ($npmBinary = config('agreements.pdf.npm_binary')) {
-            $browsershot->setNpmBinary($npmBinary);
-        }
-
-        if ($chromePath = config('agreements.pdf.chrome_path')) {
-            $browsershot->setChromePath($chromePath);
-        }
-
-        return $browsershot;
     }
 }

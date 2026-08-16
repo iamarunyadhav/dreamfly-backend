@@ -22,7 +22,7 @@ class CaseStepsController extends Controller
 
     public function index(Client $client)
     {
-        $steps = CaseStep::with('completer')->where('client_id', $client->id)->orderBy('order')->get();
+        $steps = CaseStep::with(['completer', 'assignedUser'])->where('client_id', $client->id)->orderBy('order')->get();
 
         return $this->ok([
             'steps' => CaseStepResource::collection($steps),
@@ -57,7 +57,7 @@ class CaseStepsController extends Controller
 
         $caseStep = $this->service->advance($caseStep, $request->user()->id, $validated['notes'] ?? null);
 
-        return $this->ok(new CaseStepResource($caseStep->load('completer')), 'Step completed and case advanced.');
+        return $this->ok(new CaseStepResource($caseStep->load(['completer', 'assignedUser'])), 'Step completed and case advanced.');
     }
 
     public function hold(Request $request, CaseStep $caseStep)

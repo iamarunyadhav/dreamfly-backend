@@ -12,8 +12,11 @@ use Modules\Clients\Http\Resources\ClientApplicationUnitResource;
 use Modules\Clients\Http\Resources\ClientResource;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientApplicationUnit;
+use Modules\Clients\Services\ApplicationChecklistDefaultsService;
 use Modules\Clients\Services\ApplicationChecklistRuntimeService;
 use Modules\Clients\Services\ApplicationUnitDocumentService;
+use Modules\Clients\Services\StepHandoffNotifier;
+use App\Models\User;
 use Modules\Checklists\Http\Resources\CaseChecklistItemResource;
 use Modules\Checklists\Models\CaseChecklistItem;
 use Modules\Files\Http\Resources\FileResource;
@@ -31,6 +34,18 @@ class ClientApplicationUnitController extends Controller
     public function show(Client $client)
     {
         return $this->ok($client->applicationUnit ? new ClientApplicationUnitResource($client->applicationUnit) : null);
+    }
+
+    /**
+     * Default Applicant/Inviter/Internal checklist rows for this client,
+     * resolved from the Checklists library (service-scoped, falling back to
+     * the global library, falling back to a small hardcoded set). Used by
+     * the frontend to seed a blank Application Unit before anything has
+     * been saved yet.
+     */
+    public function checklistDefaults(Client $client, ApplicationChecklistDefaultsService $defaults)
+    {
+        return $this->ok($defaults->defaultsFor($client));
     }
 
     public function saveDraft(UpsertClientApplicationUnitRequest $request, Client $client, ApplicationChecklistRuntimeService $runtime)
@@ -51,7 +66,7 @@ class ClientApplicationUnitController extends Controller
         return $this->ok(new ClientApplicationUnitResource($applicationUnit), 'Application Unit draft saved.');
     }
 
-    public function complete(UpsertClientApplicationUnitRequest $request, Client $client, ApplicationChecklistRuntimeService $runtime, CaseStepService $caseSteps)
+    public function complete(UpsertClientApplicationUnitRequest $request, Client $client, ApplicationChecklistRuntimeService $runtime, CaseStepService $caseSteps, StepHandoffNotifier $notifier)
     {
         if ($client->current_stage !== 'application_unit') {
             throw ValidationException::withMessages([
@@ -66,7 +81,14 @@ class ClientApplicationUnitController extends Controller
             ]);
         }
 
-        return DB::transaction(function () use ($request, $client, $validated, $runtime, $caseSteps) {
+        // Who takes over the Correction Unit - explicit choice, falling back to
+        // the Supervisor assigned during Admin Summary if nothing was picked.
+        $handoff = $request->validate([
+            'next_assigned_user_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+        $nextAssignedUserId = $handoff['next_assigned_user_id'] ?? $client->assigned_supervisor_id;
+
+        return DB::transaction(function () use ($request, $client, $validated, $runtime, $caseSteps, $notifier, $nextAssignedUserId) {
             $applicationUnit = ClientApplicationUnit::updateOrCreate(
                 ['client_id' => $client->id],
                 [
@@ -89,12 +111,18 @@ class ClientApplicationUnitController extends Controller
             if (! $step) {
                 $step = $caseSteps->initializeForClient($client)->firstWhere('key', 'application_unit');
             }
-            $caseSteps->advance($step, $request->user()->id);
+            $caseSteps->advance($step, $request->user()->id, null, $nextAssignedUserId);
+
+            $assignee = $nextAssignedUserId ? User::find($nextAssignedUserId) : null;
+            $handoffResult = $assignee
+                ? $notifier->notifyHandoff($client, $assignee, 'Application Unit', 'Correction Unit', null, $request->user()->id, 'documentation_unit')
+                : null;
 
             return $this->ok([
                 'application_unit' => new ClientApplicationUnitResource($applicationUnit),
                 'client' => new ClientResource($client->refresh()),
-            ], 'Application Unit completed and Documentation Unit assigned.');
+                'handoff' => $handoffResult,
+            ], 'Application Unit completed and Correction Unit assigned.');
         });
     }
 
@@ -104,6 +132,11 @@ class ClientApplicationUnitController extends Controller
             abort(403);
         }
 
+        $validated = $request->validate([
+            'folder_id' => ['nullable', 'integer', 'exists:folders,id'],
+            'file_name' => ['nullable', 'string', 'max:200'],
+        ]);
+
         $applicationUnit = $client->applicationUnit;
         if (! $applicationUnit) {
             throw ValidationException::withMessages([
@@ -111,7 +144,7 @@ class ClientApplicationUnitController extends Controller
             ]);
         }
 
-        $file = $documentService->generate($client, $applicationUnit, $request->user()->id);
+        $file = $documentService->generate($client, $applicationUnit, $request->user()->id, $validated['folder_id'] ?? null, $validated['file_name'] ?? null);
 
         return $this->created([
             'application_unit' => new ClientApplicationUnitResource($applicationUnit->refresh()),

@@ -13,6 +13,7 @@ use Modules\Communications\Http\Resources\MessageResource;
 use Modules\Communications\Models\Message;
 use Modules\Files\Http\Resources\FileResource;
 use Modules\Payments\Http\Resources\PaymentResource;
+use Modules\Payments\Http\Resources\AdditionalChargeResource;
 use Spatie\Activitylog\Models\Activity;
 
 class ClientProfileController extends Controller
@@ -22,7 +23,7 @@ class ClientProfileController extends Controller
     private const STAGES = [
         'admin_summary' => ['label' => 'Admin Summary', 'owner' => 'Admin / Supervisor'],
         'application_unit' => ['label' => 'Application Unit', 'owner' => 'Application Unit Staff'],
-        'documentation_unit' => ['label' => 'Documentation Unit', 'owner' => 'Documentation Unit Staff'],
+        'documentation_unit' => ['label' => 'Correction Unit', 'owner' => 'Documentation Unit Staff'],
         'supervisor_review' => ['label' => 'Supervisor Review', 'owner' => 'Supervisor'],
         'invoice' => ['label' => 'Invoice and Final Payment', 'owner' => 'Accounts Staff'],
         'submission' => ['label' => 'Submission', 'owner' => 'Documentation Unit Staff'],
@@ -32,7 +33,8 @@ class ClientProfileController extends Controller
 
     public function show(Request $request, Client $client)
     {
-        $client->load(['profilePhoto', 'adminSummary', 'applicationUnit', 'documentationTasks.assignedUser']);
+        $client->load(['profilePhoto', 'adminSummary', 'applicationUnit', 'documentationTasks.assignedUser'])
+            ->loadSum('additionalCharges', 'amount');
 
         return $this->ok([
             'client' => new ClientResource($client),
@@ -41,6 +43,9 @@ class ClientProfileController extends Controller
             ),
             'payments' => PaymentResource::collection(
                 $client->payments()->latest('paid_at')->latest('id')->get()
+            ),
+            'additional_charges' => AdditionalChargeResource::collection(
+                $client->additionalCharges()->latest()->get()
             ),
             'workflow' => $this->workflow($client),
             'communications' => MessageResource::collection($this->communications($client)),

@@ -6,6 +6,7 @@ use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientApplicationUnit;
 use Modules\Files\Models\File;
@@ -137,26 +138,121 @@ class ApplicationUnitDocumentService
         'Additional Applicant Information For New Zealand' => 'new_zealand_additional_information',
         'Additional Applicant Information For Canada' => 'canada_additional_information',
         'Reason For Return: (Employment Commitment, Family Responsibility, Property / Assets, Community Involvement)' => 'home_country_ties',
+        'Family Photo (Provided/Not Provided)' => 'family_photo_status',
+        'Video Call Screenshots (Provided/Not Provided)' => 'video_call_screenshots_status',
+        'Visa Photo (Provided/Not Provided)' => 'visa_photo_status',
+        'Job Id Photo With Blue Background (Provided/Not Provided)' => 'job_id_photo_blue_background_status',
+        'Land/House Photos (Provided/Not Provided)' => 'land_house_photos_status',
+        'Portfolio Photos (Provided/Not Provided)' => 'portfolio_photos_status',
+    ];
+
+    /**
+     * The real template re-uses short column headers (Full Name, Address,
+     * Email, Nic, Position...) across several unrelated tables (Spouse,
+     * Inviter, Accompanying Person, Temple, Association, Authorized Person).
+     * A single global LABEL_MAP can't tell those apart - whichever section
+     * happened to match first would leak its value into every other section
+     * sharing that label. This maps the table's own heading paragraph text
+     * to a *section-scoped* label => form_data key table, checked before the
+     * global LABEL_MAP so these specific collisions resolve correctly.
+     *
+     * @var array<string, array<string, string>>
+     */
+    private const SECTION_LABEL_MAP = [
+        'B. Spouse Details (If Married )' => [
+            'Full Name' => 'spouse_full_name',
+            'National Identity Card No.' => 'spouse_nic',
+            'Dob' => 'spouse_dob',
+            'Occupation' => 'spouse_occupation',
+            'Contact Number' => 'spouse_contact_number',
+            'Address' => 'spouse_address',
+            'Email' => 'spouse_email',
+            'Nationality' => 'spouse_nationality',
+        ],
+        'Authorized Person (Who Will Manage Your Work During Your Leave) (If Self-Employed / Business Owner)' => [
+            'Name' => 'authorized_person_name',
+            'Address' => 'authorized_person_address',
+            'Phone Number' => 'authorized_person_phone',
+            'Nic' => 'authorized_person_nic',
+            'Position' => 'authorized_person_position',
+            'Employment Start Date' => 'authorized_person_start_date',
+        ],
+        'Section 11 – Inviter / Sponsor Details (If Any)' => [
+            'Full Name' => 'inviter_full_name',
+            'Occupation / Job Title' => 'inviter_occupation',
+            'Employer / Company Name' => 'inviter_employer_name',
+            'Workplace Address' => 'inviter_workplace_address',
+            'Phone Number' => 'inviter_phone',
+            'Email Address' => 'inviter_email',
+            'Employment Start Date' => 'inviter_employment_start_date',
+            'Annual Income (Also Convert in Destination Currency)' => 'inviter_annual_income',
+        ],
+        'Section 14 - Accompanying Person Details (If Traveling Together)' => [
+            'Full Name' => 'accompanying_person_full_name',
+            'Relationship To Applicant' => 'accompanying_person_relationship',
+            'Date Of Birth' => 'accompanying_person_dob',
+            'Passport Number' => 'accompanying_person_passport_number',
+            'Place Of Birth' => 'accompanying_person_place_of_birth',
+            'Passport Issue Date' => 'accompanying_person_passport_issue_date',
+            'Passport Expiry Date' => 'accompanying_person_passport_expiry_date',
+            'National Identity Card No.' => 'accompanying_person_nic',
+            'Nationality' => 'accompanying_person_nationality',
+            'Contact Number' => 'accompanying_person_contact_number',
+            'Email Address' => 'accompanying_person_email',
+        ],
+        'A. Temple / Church Details (Must be above 18+ Years)' => [
+            'Name Of Institution' => 'temple_name',
+            'Address' => 'temple_address',
+            'Telephone' => 'temple_telephone',
+            'Email' => 'temple_email',
+            'Authorized Person Name' => 'temple_authorized_person_name',
+            'Nic' => 'temple_authorized_person_nic',
+            'Position' => 'temple_authorized_person_position',
+            'Member Since (Year)' => 'temple_member_since',
+            'Applicant’s Role / Position' => 'temple_applicant_role',
+        ],
+        'B. Association / Community Group Membership (Must be above 18+ Years)' => [
+            'Association Name' => 'association_name',
+            'Address' => 'association_address',
+            'Telephone' => 'association_telephone',
+            'Email' => 'association_email',
+            'Authorized Person Name' => 'association_authorized_person_name',
+            'Nic' => 'association_authorized_person_nic',
+            'Position' => 'association_authorized_person_position',
+            'Member Since (Year)' => 'association_member_since',
+            'Applicant’s Role / Position' => 'association_applicant_role',
+        ],
+        'Hospital Details (If Applicable)' => [
+            'Hospital / Medical Facility Name' => 'hospital_details',
+            'Hospital / Medical Facility Address' => 'hospital_address',
+            'Hospital / Medical Facility Contact' => 'hospital_contact',
+            'Patient Name' => 'hospital_patient_name',
+            'Medical Proof Available' => 'hospital_medical_proof_available',
+        ],
+        'Section 12 – Event Details (If Applicable)' => [
+            'Host / Organizing Body' => 'event_host_organisation',
+            'Names Of Key Persons (Name Of The Person Being Celebrated Or Honored)' => 'event_key_persons',
+            'Relationship With Host (Inviter)' => 'event_relationship_with_host',
+            'Additional Notes' => 'event_additional_notes',
+        ],
     ];
 
     public function __construct(private FolderService $folders)
     {
     }
 
-    public function generate(Client $client, ClientApplicationUnit $applicationUnit, int $userId): File
+    public function generate(Client $client, ClientApplicationUnit $applicationUnit, int $userId, ?int $folderId = null, ?string $fileName = null): File
     {
         $template = Storage::path(self::TEMPLATE_PATH);
         if (! is_file($template)) {
             $template = storage_path('app/'.self::TEMPLATE_PATH);
         }
         if (! is_file($template)) {
-            $source = 'C:\\Users\\PC\\Downloads\\NEW INTERNATIONAL VISA APPLICATION DATA English FORM.docx';
-            if (is_file($source)) {
-                Storage::put(self::TEMPLATE_PATH, file_get_contents($source));
-                $template = Storage::path(self::TEMPLATE_PATH);
-            }
+            throw ValidationException::withMessages([
+                'template' => ['The Application Unit template (NEW INTERNATIONAL VISA APPLICATION DATA English FORM.docx) is missing on this server. Upload it to storage/app/private/'.self::TEMPLATE_PATH.'.'],
+            ]);
         }
-        $folder = $this->applicationUnitFolder($client, $userId);
+        $folder = $folderId ? Folder::findOrFail($folderId) : $this->applicationUnitFolder($client, $userId);
         $storedName = (Str::slug($client->reference_no) ?: 'client-'.$client->id).'-application-data-'.now()->format('YmdHis').'.docx';
         $relativePath = 'generated/client-'.$client->id.'/'.$storedName;
         $absolutePath = Storage::disk('local')->path($relativePath);
@@ -168,11 +264,13 @@ class ApplicationUnitDocumentService
         copy($template, $absolutePath);
         $this->fillDocx($absolutePath, $this->values($client, $applicationUnit));
 
+        $displayName = $fileName ? preg_replace('/\.docx$/i', '', trim($fileName)).'.docx' : $client->reference_no.' Application Data Form.docx';
+
         $file = File::create([
             'folder_id' => $folder->id,
             'client_id' => $client->id,
             'name' => $storedName,
-            'original_name' => $client->reference_no.' Application Data Form.docx',
+            'original_name' => $displayName,
             'disk' => 'local',
             'path' => $relativePath,
             'extension' => 'docx',
@@ -219,24 +317,44 @@ class ApplicationUnitDocumentService
         $xpath = new DOMXPath($document);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
-        foreach ($xpath->query('//w:tr') as $row) {
-            $cells = $xpath->query('./w:tc', $row);
-            if ($cells->length < 2) {
+        // Walk the body in document order (not a flat //w:tr scan) so each
+        // table's rows can be resolved against the section heading paragraph
+        // that precedes it - several short column labels (Full Name, Address,
+        // Email...) repeat across unrelated tables (Spouse, Inviter, Temple,
+        // Association...) and only the heading tells them apart.
+        $heading = '';
+        foreach ($xpath->query('/w:document/w:body/*') as $node) {
+            if ($node->nodeName === 'w:p') {
+                $text = $this->cellText($xpath, $node);
+                if ($text !== '') {
+                    $heading = $text;
+                }
                 continue;
             }
 
-            $label = $this->cellText($xpath, $cells->item(0));
-            $key = self::LABEL_MAP[$label] ?? Str::slug($label, '_');
-            $value = trim((string) ($values[$key] ?? ''));
-            if ($value === '') {
+            if ($node->nodeName !== 'w:tbl') {
                 continue;
             }
 
-            if (in_array(strtolower($value), ['yes', 'no', 'true', 'false', '1', '0'], true) && str_contains($label, 'â˜')) {
-                $value = $this->yesNoValue($value);
-            }
+            foreach ($xpath->query('.//w:tr', $node) as $row) {
+                $cells = $xpath->query('./w:tc', $row);
+                if ($cells->length < 2) {
+                    continue;
+                }
 
-            $this->replaceCellText($xpath, $cells->item(1), $value);
+                $label = $this->cellText($xpath, $cells->item(0));
+                $key = self::SECTION_LABEL_MAP[$heading][$label] ?? self::LABEL_MAP[$label] ?? Str::slug($label, '_');
+                $value = trim((string) ($values[$key] ?? ''));
+                if ($value === '') {
+                    continue;
+                }
+
+                if (in_array(strtolower($value), ['yes', 'no', 'true', 'false', '1', '0'], true) && str_contains($label, "\xc3\xa2\xcb\x9c")) {
+                    $value = $this->yesNoValue($value);
+                }
+
+                $this->replaceCellText($xpath, $cells->item(1), $value);
+            }
         }
 
         $zip->addFromString('word/document.xml', $document->saveXML());

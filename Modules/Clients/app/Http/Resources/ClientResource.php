@@ -25,6 +25,7 @@ class ClientResource extends JsonResource
             'service_category' => $this->service_category,
             'agreement_amount' => $this->agreement_amount,
             'paid_amount' => $this->paid_amount,
+            'additional_charges_total' => $this->additional_charges_total,
             'balance' => $this->balance,
             'profile_photo_file_id' => $this->profile_photo_file_id,
             'profile_photo' => new FileResource($this->whenLoaded('profilePhoto')),

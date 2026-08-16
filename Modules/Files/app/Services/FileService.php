@@ -130,6 +130,16 @@ class FileService extends BaseService
         ]);
     }
 
+    /**
+     * Renames the display name only - storage path/extension/disk name are
+     * untouched. `original_name` (not `name`) is what FileResource/the
+     * frontend actually show as the document's name.
+     */
+    public function rename(File $file, string $name): File
+    {
+        return $this->repository->update($file, ['original_name' => $name]);
+    }
+
     private function store(UploadedFile $uploadedFile, int $uploadedBy, array $owner, string $dir): File
     {
         return DB::transaction(function () use ($uploadedFile, $uploadedBy, $owner, $dir) {

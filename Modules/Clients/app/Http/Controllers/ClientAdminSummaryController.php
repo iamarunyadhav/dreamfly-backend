@@ -13,7 +13,9 @@ use Modules\Clients\Http\Resources\ClientResource;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientAdminSummary;
 use Modules\Clients\Services\AdminSummaryDocumentService;
+use Modules\Clients\Services\StepHandoffNotifier;
 use Modules\Files\Http\Resources\FileResource;
+use App\Models\User;
 use Modules\Workflows\Models\CaseStep;
 use Modules\Workflows\Services\CaseStepService;
 
@@ -46,7 +48,7 @@ class ClientAdminSummaryController extends Controller
         return $this->ok(new ClientAdminSummaryResource($summary), 'Admin Summary draft saved.');
     }
 
-    public function complete(Request $request, Client $client, CaseStepService $caseSteps)
+    public function complete(Request $request, Client $client, CaseStepService $caseSteps, StepHandoffNotifier $notifier)
     {
         $validated = $request->validate([
             'summary' => ['required', 'string', 'min:10'],
@@ -68,7 +70,7 @@ class ClientAdminSummaryController extends Controller
             ]);
         }
 
-        return DB::transaction(function () use ($request, $client, $validated, $caseSteps) {
+        return DB::transaction(function () use ($request, $client, $validated, $caseSteps, $notifier) {
             $summary = ClientAdminSummary::updateOrCreate(
                 ['client_id' => $client->id],
                 [
@@ -91,11 +93,17 @@ class ClientAdminSummaryController extends Controller
             if (! $step) {
                 $step = $caseSteps->initializeForClient($client)->firstWhere('key', 'admin_summary');
             }
-            $caseSteps->advance($step, $request->user()->id);
+            $caseSteps->advance($step, $request->user()->id, null, $validated['application_staff_id']);
+
+            $assignee = User::find($validated['application_staff_id']);
+            $handoff = $assignee
+                ? $notifier->notifyHandoff($client, $assignee, 'Admin Summary', 'Application Unit', $validated['deadline_at'], $request->user()->id, 'application_unit')
+                : null;
 
             return $this->ok([
                 'admin_summary' => new ClientAdminSummaryResource($summary),
                 'client' => new ClientResource($client->refresh()),
+                'handoff' => $handoff,
             ], 'Admin Summary completed and Application Unit assigned.');
         });
     }
@@ -106,6 +114,11 @@ class ClientAdminSummaryController extends Controller
             abort(403);
         }
 
+        $validated = $request->validate([
+            'folder_id' => ['nullable', 'integer', 'exists:folders,id'],
+            'file_name' => ['nullable', 'string', 'max:200'],
+        ]);
+
         $summary = $client->adminSummary;
         if (! $summary) {
             throw ValidationException::withMessages([
@@ -113,7 +126,7 @@ class ClientAdminSummaryController extends Controller
             ]);
         }
 
-        $file = $documentService->generate($client, $summary, $request->user()->id);
+        $file = $documentService->generate($client, $summary, $request->user()->id, $validated['folder_id'] ?? null, $validated['file_name'] ?? null);
 
         return $this->created([
             'admin_summary' => new ClientAdminSummaryResource($summary->refresh()),

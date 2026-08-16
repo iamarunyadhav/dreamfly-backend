@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Files\Models\File;
 use Modules\Agreements\Models\Agreement;
+use Modules\Payments\Models\AdditionalCharge;
 use Modules\Payments\Models\Payment;
 
 class CommonUser extends Model
@@ -36,7 +37,23 @@ class CommonUser extends Model
 
     public function getBalanceAttribute(): int
     {
-        return max(0, $this->agreement_amount - $this->paid_amount);
+        return max(0, $this->agreement_amount + $this->additional_charges_total - $this->paid_amount);
+    }
+
+    public function getAdditionalChargesTotalAttribute(): int
+    {
+        // Use the eager-loaded sum (via withSum) when the caller provided one, to
+        // avoid an extra query per row on list endpoints; fall back to a live sum.
+        if (array_key_exists('additional_charges_sum_amount', $this->attributes)) {
+            return (int) $this->attributes['additional_charges_sum_amount'];
+        }
+
+        return (int) $this->additionalCharges()->sum('amount');
+    }
+
+    public function additionalCharges(): HasMany
+    {
+        return $this->hasMany(AdditionalCharge::class);
     }
 
     public function documents(): HasMany

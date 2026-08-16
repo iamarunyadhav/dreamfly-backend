@@ -71,7 +71,7 @@ class ClientUniquenessTest extends TestCase
         // POST /clients is the other real client-creation path (besides lead
         // conversion) - it must also seed case_steps immediately, never left to
         // a manual "initialize" call.
-        $this->assertSame(9, CaseStep::where('client_id', $response->json('data.id'))->count());
+        $this->assertSame(11, CaseStep::where('client_id', $response->json('data.id'))->count());
     }
 
     public function test_updating_a_client_to_collide_with_another_client_is_rejected(): void

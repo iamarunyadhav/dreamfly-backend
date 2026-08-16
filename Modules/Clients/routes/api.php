@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Clients\Http\Controllers\ClientAdminSummaryController;
 use Modules\Clients\Http\Controllers\ClientApplicationUnitController;
 use Modules\Clients\Http\Controllers\ClientCaseClosureController;
+use Modules\Clients\Http\Controllers\ClientDocumentPrepUnitController;
 use Modules\Clients\Http\Controllers\ClientNotesController;
 use Modules\Clients\Http\Controllers\ClientProfileController;
 use Modules\Clients\Http\Controllers\ClientResponsibilityNoticeController;
@@ -17,9 +18,12 @@ use Modules\Clients\Http\Controllers\VisaDecisionController;
 use Modules\Clients\Http\Controllers\VisaSubmissionController;
 
 Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
-    Route::get('tasks/my', [TaskQueuesController::class, 'my'])->middleware('permission:documentation-unit.view')->name('tasks.my');
-    Route::get('tasks/pending', [TaskQueuesController::class, 'pending'])->middleware('permission:documentation-unit.view')->name('tasks.pending');
-    Route::get('tasks/overdue', [TaskQueuesController::class, 'overdue'])->middleware('permission:documentation-unit.view')->name('tasks.overdue');
+    // Both teams executing documentation_tasks rows need their own queue -
+    // Correction Unit (documentation-unit.view) creates/owns them, Documentation
+    // Unit (document-prep-unit.view) works the ones assigned to it.
+    Route::get('tasks/my', [TaskQueuesController::class, 'my'])->middleware('permission:documentation-unit.view|document-prep-unit.view')->name('tasks.my');
+    Route::get('tasks/pending', [TaskQueuesController::class, 'pending'])->middleware('permission:documentation-unit.view|document-prep-unit.view')->name('tasks.pending');
+    Route::get('tasks/overdue', [TaskQueuesController::class, 'overdue'])->middleware('permission:documentation-unit.view|document-prep-unit.view')->name('tasks.overdue');
 
     // Shared native/destination country list - readable by anyone logged in;
     // adding one is gated in the controller since it's used from both the
@@ -31,6 +35,12 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::post('clients', [ClientsController::class, 'store'])->middleware('permission:clients.create')->name('clients.store');
     Route::get('clients/{client}/profile', [ClientProfileController::class, 'show'])->middleware('permission:clients.view')->name('clients.profile.show');
     Route::post('clients/{client}/profile-photo', [ClientsController::class, 'uploadProfilePhoto'])->middleware('permission:clients.edit')->name('clients.profile-photo.store');
+    Route::get('clients/{client}/additional-charges', [ClientsController::class, 'additionalCharges'])
+        ->middleware('permission:clients.view')->name('clients.additional-charges.index');
+    Route::post('clients/{client}/additional-charges', [ClientsController::class, 'storeAdditionalCharge'])
+        ->middleware(['permission:clients.edit', 'permission:payments.create'])->name('clients.additional-charges.store');
+    Route::delete('clients/{client}/additional-charges/{additionalCharge}', [ClientsController::class, 'destroyAdditionalCharge'])
+        ->middleware(['permission:clients.edit', 'permission:payments.delete'])->name('clients.additional-charges.destroy');
     Route::get('clients/{client}/notes', [ClientNotesController::class, 'index'])->middleware('permission:clients.view')->name('clients.notes.index');
     Route::post('clients/{client}/notes', [ClientNotesController::class, 'store'])->middleware('permission:clients.edit')->name('clients.notes.store');
     Route::delete('clients/{client}/notes/{note}', [ClientNotesController::class, 'destroy'])->middleware('permission:clients.edit')->name('clients.notes.destroy');
@@ -45,16 +55,21 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
         ->middleware('permission:clients.edit')->name('clients.admin-summary.generate-docx');
     Route::get('clients/{client}/application-unit', [ClientApplicationUnitController::class, 'show'])
         ->middleware('permission:application-unit.view')->name('clients.application-unit.show');
+    Route::get('clients/{client}/application-unit/checklist-defaults', [ClientApplicationUnitController::class, 'checklistDefaults'])
+        ->middleware('permission:application-unit.view')->name('clients.application-unit.checklist-defaults');
     Route::put('clients/{client}/application-unit', [ClientApplicationUnitController::class, 'saveDraft'])
         ->middleware('permission:application-unit.update')->name('clients.application-unit.save');
     Route::post('clients/{client}/application-unit/complete', [ClientApplicationUnitController::class, 'complete'])
         ->middleware('permission:application-unit.complete')->name('clients.application-unit.complete');
     Route::post('clients/{client}/application-unit/generate-docx', [ClientApplicationUnitController::class, 'generateDocx'])
         ->middleware('permission:application-unit.generate')->name('clients.application-unit.generate-docx');
+    // The runtime checklist is read/uploaded to well beyond Application Unit
+    // itself - Correction Unit verifies it and Documentation Unit downloads/
+    // uploads to it, so both of their own view/update permissions qualify too.
     Route::get('clients/{client}/application-unit/checklist-items', [ClientApplicationUnitController::class, 'checklistItems'])
-        ->middleware('permission:application-unit.view')->name('clients.application-unit.checklist-items');
+        ->middleware('permission:application-unit.view|documentation-unit.view|document-prep-unit.view')->name('clients.application-unit.checklist-items');
     Route::post('clients/{client}/application-unit/checklist-file', [ClientApplicationUnitController::class, 'uploadChecklistFile'])
-        ->middleware('permission:application-unit.update')->name('clients.application-unit.checklist-file');
+        ->middleware('permission:application-unit.update|documentation-unit.update|document-prep-unit.update|files.create')->name('clients.application-unit.checklist-file');
     Route::patch('clients/{client}/application-unit/checklist-items/{item}/verify', [ClientApplicationUnitController::class, 'verifyChecklistItem'])
         ->middleware('permission:files.verify')->name('clients.application-unit.checklist-items.verify');
     Route::patch('clients/{client}/application-unit/checklist-items/{item}/reject', [ClientApplicationUnitController::class, 'rejectChecklistItem'])
@@ -114,14 +129,26 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::post('clients/{client}/case-closure/complete', [ClientCaseClosureController::class, 'complete'])
         ->middleware('permission:clients.edit')->name('clients.case-closure.complete');
 
+    // documentation_tasks rows are shared: Correction Unit creates/manages them
+    // (documentation-unit.*), Documentation Unit only lists/updates the ones
+    // assigned to it (document-prep-unit.*) - it never gets create/delete.
     Route::get('clients/{client}/documentation-tasks', [DocumentationTasksController::class, 'index'])
-        ->middleware('permission:documentation-unit.view')->name('clients.documentation-tasks.index');
+        ->middleware('permission:documentation-unit.view|document-prep-unit.view')->name('clients.documentation-tasks.index');
+    Route::post('clients/{client}/documentation-tasks/confirm-assignments', [DocumentationTasksController::class, 'confirmAssignments'])
+        ->middleware('permission:clients.edit')->name('clients.documentation-tasks.confirm-assignments');
     Route::post('clients/{client}/documentation-tasks', [DocumentationTasksController::class, 'store'])
         ->middleware('permission:documentation-unit.create')->name('clients.documentation-tasks.store');
     Route::put('clients/{client}/documentation-tasks/{task}', [DocumentationTasksController::class, 'update'])
-        ->middleware('permission:documentation-unit.update')->name('clients.documentation-tasks.update');
+        ->middleware('permission:documentation-unit.update|document-prep-unit.update')->name('clients.documentation-tasks.update');
+    Route::post('clients/{client}/documentation-tasks/{task}/file', [DocumentationTasksController::class, 'uploadFile'])
+        ->middleware('permission:documentation-unit.update|document-prep-unit.update')->name('clients.documentation-tasks.upload-file');
     Route::delete('clients/{client}/documentation-tasks/{task}', [DocumentationTasksController::class, 'destroy'])
         ->middleware('permission:documentation-unit.delete')->name('clients.documentation-tasks.destroy');
+
+    Route::post('clients/{client}/document-prep-unit/generate-summary', [ClientDocumentPrepUnitController::class, 'generateSummary'])
+        ->middleware('permission:document-prep-unit.view')->name('clients.document-prep-unit.generate-summary');
+    Route::post('clients/{client}/document-prep-unit/complete', [ClientDocumentPrepUnitController::class, 'complete'])
+        ->middleware('permission:document-prep-unit.complete')->name('clients.document-prep-unit.complete');
     Route::put('clients/{client}', [ClientsController::class, 'update'])->middleware('permission:clients.edit')->name('clients.update');
     Route::patch('clients/{client}', [ClientsController::class, 'update'])->middleware('permission:clients.edit');
     Route::delete('clients/{client}', [ClientsController::class, 'destroy'])->middleware('permission:clients.delete')->name('clients.destroy');

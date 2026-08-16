@@ -2,6 +2,7 @@
 
 namespace Modules\Invoices\Services;
 
+use App\Support\Pdf\BrowsershotPdfRenderer;
 use App\Support\Pdf\SimplePdf;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -11,7 +12,6 @@ use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
 use Modules\Folders\Services\FolderService;
 use Modules\Invoices\Models\Invoice;
-use Spatie\Browsershot\Browsershot;
 use Throwable;
 
 class InvoiceDocumentService
@@ -68,7 +68,7 @@ class InvoiceDocumentService
         }
 
         try {
-            return $this->browsershot($html)->pdf();
+            return BrowsershotPdfRenderer::render($html, [0, 0, 0, 0]);
         } catch (Throwable $e) {
             Log::warning('Invoice PDF Browsershot render failed, using text fallback.', [
                 'invoice_id' => $invoice->id,
@@ -77,29 +77,6 @@ class InvoiceDocumentService
 
             return SimplePdf::fromText($this->text($invoice));
         }
-    }
-
-    private function browsershot(string $html): Browsershot
-    {
-        $browsershot = Browsershot::html($html)
-            ->format('A4')
-            ->margins(0, 0, 0, 0)
-            ->showBackground()
-            ->waitUntilNetworkIdle();
-
-        if ($nodeBinary = config('invoices.pdf.node_binary')) {
-            $browsershot->setNodeBinary($nodeBinary);
-        }
-
-        if ($npmBinary = config('invoices.pdf.npm_binary')) {
-            $browsershot->setNpmBinary($npmBinary);
-        }
-
-        if ($chromePath = config('invoices.pdf.chrome_path')) {
-            $browsershot->setChromePath($chromePath);
-        }
-
-        return $browsershot;
     }
 
     private function text(Invoice $invoice): string

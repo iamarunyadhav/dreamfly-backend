@@ -79,7 +79,7 @@ class SupervisorReviewTest extends TestCase
 
         // Only stages before Supervisor Review may be sent back to.
         $options = collect($response->json('data.send_back_options'))->pluck('key')->all();
-        $this->assertSame(['admin_summary', 'application_unit', 'documentation_unit'], $options);
+        $this->assertSame(['admin_summary', 'application_unit', 'documentation_unit', 'document_prep_unit', 'upload_team'], $options);
 
         // Idempotent: a second read must not open a second round.
         $this->actingAs($user)->getJson("/api/v1/clients/{$client->id}/supervisor-review")->assertOk();

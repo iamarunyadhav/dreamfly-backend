@@ -3,7 +3,11 @@
 namespace Tests\Feature\Roles;
 
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Modules\Clients\Models\Client;
+use Modules\CommonUsers\Models\CommonUser;
+use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderService;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -13,7 +17,9 @@ class RolePermissionTest extends TestCase
     /** Each unit role must hold the permission group its own stage routes require. */
     private const UNIT_ROLE_MODULES = [
         'Application Unit Staff' => 'application-unit',
-        'Documentation Unit Staff' => 'documentation-unit',
+        'Correction Unit Staff' => 'documentation-unit',
+        'Documentation Unit Staff' => 'document-prep-unit',
+        'Upload Team Staff' => 'upload-team',
     ];
 
     public function test_user_with_roles_view_permission_can_list_roles(): void
@@ -149,5 +155,47 @@ class RolePermissionTest extends TestCase
         $this->actingAs($user)
             ->getJson("/api/v1/clients/{$client->id}/application-unit")
             ->assertOk();
+    }
+
+    /**
+     * Guards the defect found while wiring `FolderBrowserModal` into the lead
+     * side (`LeadDocumentsModal`): Reception Staff manages Common Users day to
+     * day but held no `folders.*`/`files.*` permissions at all, so the same
+     * tree/list/create/upload calls the client workspace already relies on
+     * would have 403'd for this role the moment the frontend started making them.
+     */
+    public function test_reception_staff_role_can_browse_and_upload_into_a_leads_folder_tree(): void
+    {
+        $user = User::factory()->create(['status' => 'active']);
+        $user->assignRole('Reception Staff');
+
+        $lead = CommonUser::create([
+            'full_name' => 'Folder Access Lead',
+            'country' => 'Australia',
+            'visa_type' => 'Visit Visa',
+            'service_category' => 'visit_visa',
+            'agreement_amount' => 50000,
+            'paid_amount' => 0,
+            'status' => 'unpaid',
+        ]);
+        app(FolderService::class)->createLeadFolderTree($lead, $user->id);
+
+        $leadRoot = Folder::where('common_user_id', $lead->id)
+            ->whereHas('parent', fn ($q) => $q->whereNull('client_id')->whereNull('common_user_id'))
+            ->first();
+        $this->assertNotNull($leadRoot);
+
+        $this->actingAs($user)->getJson('/api/v1/folders')->assertOk();
+        $this->actingAs($user)->getJson("/api/v1/files?folder_id={$leadRoot->id}")->assertOk();
+
+        $this->actingAs($user)->postJson('/api/v1/folders', [
+            'name' => 'Extra Notes',
+            'parent_id' => $leadRoot->id,
+        ])->assertStatus(201);
+
+        $this->actingAs($user)->postJson('/api/v1/files', [
+            'folder_id' => $leadRoot->id,
+            'file' => UploadedFile::fake()->create('note.pdf', 10, 'application/pdf'),
+        ])->assertStatus(201);
     }
 }

@@ -46,12 +46,13 @@ class CaseStepRuntimeTest extends TestCase
 
         $response->assertCreated();
         $steps = $response->json('data.steps');
-        $this->assertCount(9, $steps);
+        $this->assertCount(11, $steps);
 
         $byKey = collect($steps)->keyBy('key');
         $this->assertSame('completed', $byKey['admin_summary']['status']);
         $this->assertSame('completed', $byKey['application_unit']['status']);
         $this->assertSame('in_progress', $byKey['documentation_unit']['status']);
+        $this->assertSame('pending', $byKey['document_prep_unit']['status']);
         $this->assertSame('pending', $byKey['supervisor_review']['status']);
         $this->assertTrue($byKey['documentation_unit']['requires_checklist']);
         $this->assertTrue($byKey['responsibility_notice']['requires_acknowledgement']);
@@ -138,12 +139,41 @@ class CaseStepRuntimeTest extends TestCase
         $this->actingAs($user)->postJson("/api/v1/case-steps/{$docStep->id}/advance")
             ->assertStatus(422)
             ->assertJsonValidationErrors('checklist');
+    }
+
+    /**
+     * A rejected-but-required document must also block completion, not just a
+     * never-uploaded one - Correction Unit is responsible for re-verifying it
+     * before this stage (and its handoff to the next stage) can proceed.
+     */
+    public function test_rejected_required_checklist_item_blocks_step_completion(): void
+    {
+        $user = $this->user(['clients.view', 'clients.edit']);
+        $client = $this->client('documentation_unit');
+        $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/case-steps/initialize", []);
+
+        CaseChecklistItem::create([
+            'client_id' => $client->id,
+            'owner' => 'applicant',
+            'source_index' => 0,
+            'title' => 'Passport copy',
+            'status' => 'rejected',
+            'is_required' => true,
+            'document_required' => true,
+            'rejection_reason' => 'Blurry scan',
+        ]);
+
+        $docStep = CaseStep::where('client_id', $client->id)->where('key', 'documentation_unit')->first();
+
+        $this->actingAs($user)->postJson("/api/v1/case-steps/{$docStep->id}/advance")
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('checklist');
 
         // Once the item is verified, the step can complete.
         CaseChecklistItem::where('client_id', $client->id)->update(['status' => 'verified']);
 
         $this->actingAs($user)->postJson("/api/v1/case-steps/{$docStep->id}/advance")->assertOk();
-        $this->assertSame('supervisor_review', $client->refresh()->current_stage);
+        $this->assertSame('document_prep_unit', $client->refresh()->current_stage);
     }
 
     public function test_hold_and_resume_extends_due_date(): void

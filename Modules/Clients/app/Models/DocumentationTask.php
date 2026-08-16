@@ -7,6 +7,7 @@ use App\Support\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Modules\Files\Models\File;
 
 class DocumentationTask extends Model
 {
@@ -30,6 +31,7 @@ class DocumentationTask extends Model
         'escalation_at',
         'escalated_at',
         'notes',
+        'file_id',
         'created_by',
         'updated_by',
     ];
@@ -60,5 +62,10 @@ class DocumentationTask extends Model
     public function supervisor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'supervisor_id');
+    }
+
+    public function file(): BelongsTo
+    {
+        return $this->belongsTo(File::class);
     }
 }

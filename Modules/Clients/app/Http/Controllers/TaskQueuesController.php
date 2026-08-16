@@ -25,6 +25,9 @@ class TaskQueuesController extends Controller
                             ->whereIn('assigned_role', $roles);
                     });
             })
+            // Lets a "Start" notification link land someone straight on their
+            // own tasks for one client, instead of every client at once.
+            ->when($request->integer('client'), fn ($query, $clientId) => $query->where('client_id', $clientId))
             ->paginate((int) $request->integer('per_page', 20));
 
         return $this->ok(DocumentationTaskResource::collection($tasks));

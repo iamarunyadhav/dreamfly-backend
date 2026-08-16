@@ -20,6 +20,7 @@ class CaseStep extends Model
         'name',
         'order',
         'owner_role',
+        'assigned_user_id',
         'status',
         'duration_days',
         'requires_checklist',
@@ -69,5 +70,10 @@ class CaseStep extends Model
     public function completer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
     }
 }

@@ -122,6 +122,17 @@ class FilesController extends Controller
         return $this->ok(new FileResource($file), 'Document verified.');
     }
 
+    public function rename(Request $request, File $file)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $file = $this->service->rename($file, trim($validated['name']));
+
+        return $this->ok(new FileResource($file), 'Document renamed.');
+    }
+
     /** Replace a document with a corrected copy, keeping the old one as history. */
     public function storeVersion(Request $request, File $file)
     {

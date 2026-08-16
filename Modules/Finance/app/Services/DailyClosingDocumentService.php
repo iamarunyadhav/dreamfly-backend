@@ -2,6 +2,7 @@
 
 namespace Modules\Finance\Services;
 
+use App\Support\Pdf\BrowsershotPdfRenderer;
 use App\Support\Pdf\SimplePdf;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -9,7 +10,6 @@ use Illuminate\Support\Facades\View;
 use Modules\Files\Models\File;
 use Modules\Finance\Models\DailyClosing;
 use Modules\Folders\Models\Folder;
-use Spatie\Browsershot\Browsershot;
 use Throwable;
 
 class DailyClosingDocumentService
@@ -57,18 +57,7 @@ class DailyClosingDocumentService
         }
 
         try {
-            $browsershot = Browsershot::html($html)->format('A4')->margins(0, 0, 0, 0)->showBackground()->waitUntilNetworkIdle();
-            if ($node = config('agreements.pdf.node_binary')) {
-                $browsershot->setNodeBinary($node);
-            }
-            if ($npm = config('agreements.pdf.npm_binary')) {
-                $browsershot->setNpmBinary($npm);
-            }
-            if ($chrome = config('agreements.pdf.chrome_path')) {
-                $browsershot->setChromePath($chrome);
-            }
-
-            return $browsershot->pdf();
+            return BrowsershotPdfRenderer::render($html, [0, 0, 0, 0]);
         } catch (Throwable $e) {
             Log::warning('Daily closing PDF Browsershot render failed, using text fallback.', [
                 'closing_id' => $closing->id,

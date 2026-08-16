@@ -5,10 +5,12 @@ namespace Modules\Folders\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Support\Http\ApiResponse;
 use Illuminate\Http\Request;
+use Modules\Files\Http\Resources\FileResource;
 use Modules\Folders\Http\Requests\StoreFolderRequest;
 use Modules\Folders\Http\Requests\UpdateFolderRequest;
 use Modules\Folders\Http\Resources\FolderResource;
 use Modules\Folders\Models\Folder;
+use Modules\Folders\Services\FolderCompressionService;
 use Modules\Folders\Services\FolderService;
 
 class FoldersController extends Controller
@@ -50,6 +52,13 @@ class FoldersController extends Controller
         $count = $this->service->propagateTemplateToExisting($folder);
 
         return $this->ok(['clients_updated' => $count], 'General folder propagated successfully.');
+    }
+
+    public function compress(Request $request, Folder $folder, FolderCompressionService $compression)
+    {
+        $file = $compression->compress($folder, $request->user()->id);
+
+        return $this->created(new FileResource($file), 'Folder compressed and saved as a zip.');
     }
 
     public function destroy(Folder $folder)

@@ -30,7 +30,15 @@ class RolePermissionSeeder extends Seeder
         'payments' => ['view', 'create', 'edit', 'update', 'delete', 'verify', 'refund', 'adjust'],
         'communications' => ['view', 'create', 'edit', 'update', 'delete', 'send', 'share', 'retry'],
         'application-unit' => ['view', 'create', 'edit', 'update', 'complete', 'generate'],
+        // Owns the "Correction Unit" stage (still keyed `documentation_unit`
+        // internally - see the 2026-08-08 stage-label rename).
         'documentation-unit' => ['view', 'create', 'edit', 'update', 'delete', 'complete', 'assign'],
+        // Owns the genuinely separate "Documentation Unit" stage that now
+        // follows Correction Unit.
+        'document-prep-unit' => ['view', 'create', 'update', 'complete', 'assign'],
+        // Owns the final Upload Team stage - gathers, compresses, and downloads
+        // the case's documents. No further handoff to assign.
+        'upload-team' => ['view', 'create', 'update', 'complete', 'compress'],
         'supervisor-review' => ['view', 'comment', 'approve', 'send_back'],
         'audit-logs' => ['view'],
         'reports' => ['view'],
@@ -92,8 +100,19 @@ class RolePermissionSeeder extends Seeder
             $this->modulePermissions(['clients', 'checklists', 'workflows', 'folders', 'files', 'contacts', 'communications', 'application-unit', 'ocr'], extra: $reviewParticipant)
         );
 
-        Role::firstOrCreate(['name' => 'Documentation Unit Staff', 'guard_name' => 'web'])->syncPermissions(
+        // Owns Correction Unit (renamed from "Documentation Unit Staff" on
+        // 2026-08-10 - see the migration that renames the role in place).
+        Role::firstOrCreate(['name' => 'Correction Unit Staff', 'guard_name' => 'web'])->syncPermissions(
             $this->modulePermissions(['clients', 'checklists', 'folders', 'files', 'contacts', 'documentation-unit', 'ocr'], extra: $reviewParticipant)
+        );
+
+        // Owns the new Documentation Unit stage that follows Correction Unit.
+        Role::firstOrCreate(['name' => 'Documentation Unit Staff', 'guard_name' => 'web'])->syncPermissions(
+            $this->modulePermissions(['clients', 'checklists', 'folders', 'files', 'contacts', 'document-prep-unit', 'ocr'], extra: $reviewParticipant)
+        );
+
+        Role::firstOrCreate(['name' => 'Upload Team Staff', 'guard_name' => 'web'])->syncPermissions(
+            $this->modulePermissions(['clients', 'folders', 'files', 'upload-team'])
         );
 
         Role::firstOrCreate(['name' => 'Accounts Staff', 'guard_name' => 'web'])->syncPermissions(
@@ -101,7 +120,7 @@ class RolePermissionSeeder extends Seeder
         );
 
         Role::firstOrCreate(['name' => 'Reception Staff', 'guard_name' => 'web'])->syncPermissions(
-            $this->modulePermissions(['common-users', 'contacts', 'agreements'])
+            $this->modulePermissions(['common-users', 'contacts', 'agreements', 'folders', 'files'])
         );
 
         Role::firstOrCreate(['name' => 'Read-only Staff', 'guard_name' => 'web'])->syncPermissions($readOnly);

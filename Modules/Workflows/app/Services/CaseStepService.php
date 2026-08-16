@@ -26,11 +26,19 @@ class CaseStepService
     private const DEFAULT_STAGES = [
         ['key' => 'admin_summary', 'name' => 'Admin Summary', 'owner_role' => 'Supervisor', 'duration_days' => 2, 'requires_checklist' => false],
         ['key' => 'application_unit', 'name' => 'Application Unit', 'owner_role' => 'Application Unit Staff', 'duration_days' => 5, 'requires_checklist' => false],
-        ['key' => 'documentation_unit', 'name' => 'Documentation Unit', 'owner_role' => 'Documentation Unit Staff', 'duration_days' => 7, 'requires_checklist' => true],
+        // 'documentation_unit' is the key's original name; the stage itself
+        // is labeled/owned as Correction Unit since the 2026-08-08 rename.
+        ['key' => 'documentation_unit', 'name' => 'Correction Unit', 'owner_role' => 'Correction Unit Staff', 'duration_days' => 7, 'requires_checklist' => true],
+        // Genuinely new stage - the office/paperwork team that picks up after
+        // Correction Unit finishes verifying documents.
+        ['key' => 'document_prep_unit', 'name' => 'Documentation Unit', 'owner_role' => 'Documentation Unit Staff', 'duration_days' => 5, 'requires_checklist' => false],
+        // Genuinely new stage - gathers, compresses, and hands off the case's
+        // documents once Documentation Unit's own work is done.
+        ['key' => 'upload_team', 'name' => 'Upload Team', 'owner_role' => 'Upload Team Staff', 'duration_days' => 2, 'requires_checklist' => false],
         ['key' => 'supervisor_review', 'name' => 'Supervisor Review', 'owner_role' => 'Supervisor', 'duration_days' => 2, 'requires_checklist' => false],
-        ['key' => 'responsibility_notice', 'name' => 'Responsibility Notice', 'owner_role' => 'Documentation Unit Staff', 'duration_days' => 2, 'requires_checklist' => false, 'requires_acknowledgement' => true],
+        ['key' => 'responsibility_notice', 'name' => 'Responsibility Notice', 'owner_role' => 'Correction Unit Staff', 'duration_days' => 2, 'requires_checklist' => false, 'requires_acknowledgement' => true],
         ['key' => 'invoice', 'name' => 'Invoice and Final Payment', 'owner_role' => 'Accounts Staff', 'duration_days' => 3, 'requires_checklist' => false],
-        ['key' => 'submission', 'name' => 'Submission', 'owner_role' => 'Documentation Unit Staff', 'duration_days' => 3, 'requires_checklist' => true],
+        ['key' => 'submission', 'name' => 'Submission', 'owner_role' => 'Correction Unit Staff', 'duration_days' => 3, 'requires_checklist' => true],
         ['key' => 'visa_result', 'name' => 'Visa Result', 'owner_role' => 'Supervisor', 'duration_days' => 30, 'requires_checklist' => false],
         ['key' => 'closed', 'name' => 'Closed', 'owner_role' => 'Supervisor', 'duration_days' => null, 'requires_checklist' => false, 'requires_closure_record' => true],
     ];
@@ -89,9 +97,9 @@ class CaseStepService
         });
     }
 
-    public function advance(CaseStep $step, int $userId, ?string $notes = null): CaseStep
+    public function advance(CaseStep $step, int $userId, ?string $notes = null, ?int $nextAssignedUserId = null): CaseStep
     {
-        return DB::transaction(function () use ($step, $userId, $notes) {
+        return DB::transaction(function () use ($step, $userId, $notes, $nextAssignedUserId) {
             if (in_array($step->status, ['completed', 'skipped'], true)) {
                 throw ValidationException::withMessages(['status' => 'This step is already completed.']);
             }
@@ -162,6 +170,7 @@ class CaseStepService
                     'status' => 'in_progress',
                     'started_at' => $next->started_at ?? now(),
                     'due_at' => $next->duration_days ? now()->addDays((int) $next->duration_days) : null,
+                    'assigned_user_id' => $nextAssignedUserId ?? $next->assigned_user_id,
                 ])->save();
 
                 $client?->forceFill(['current_stage' => $next->key])->save();

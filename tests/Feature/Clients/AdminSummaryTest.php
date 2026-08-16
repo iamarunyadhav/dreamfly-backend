@@ -131,6 +131,39 @@ class AdminSummaryTest extends TestCase
         // case_steps as the single source of truth.
         $this->assertSame('completed', CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->value('status'));
         $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'application_unit')->value('status'));
+
+        // The chosen Application Unit staff member actually lands on the new
+        // current step (previously this was stored on client_admin_summaries
+        // only and never propagated anywhere operational) and gets notified.
+        $this->assertSame($staff->id, CaseStep::where('client_id', $client->id)->where('key', 'application_unit')->value('assigned_user_id'));
+        $response->assertJsonPath('data.handoff.assignee.user_id', $staff->id);
+        $this->assertDatabaseHas('messages', ['client_id' => $client->id, 'recipient' => $staff->email]);
+    }
+
+    public function test_admin_summary_complete_notifies_assignee_and_every_admin(): void
+    {
+        $admin = User::factory()->create(['status' => 'active', 'email' => 'admin@dreamfly.test', 'phone' => '94770000009']);
+        $admin->assignRole('Admin');
+        $user = $this->userWith('clients.edit');
+        $client = $this->client();
+        $supervisor = User::factory()->create(['status' => 'active']);
+        $staff = User::factory()->create(['status' => 'active', 'name' => 'Priya', 'email' => 'priya@dreamfly.test', 'phone' => '94770000010']);
+
+        $response = $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/admin-summary/complete", [
+            'summary' => 'Client documents and agreement have been checked. Application Unit can start.',
+            'supervisor_id' => $supervisor->id,
+            'application_staff_id' => $staff->id,
+            'deadline_at' => '2026-07-25 10:30:00',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('data.handoff.assignee.channels_sent', ['email', 'whatsapp']);
+        $response->assertJsonPath('data.handoff.admins_notified', 1);
+        $this->assertDatabaseHas('messages', ['recipient' => 'priya@dreamfly.test', 'channel' => 'email']);
+        $this->assertDatabaseHas('messages', ['recipient' => '94770000010', 'channel' => 'whatsapp']);
+        $this->assertDatabaseHas('messages', ['recipient' => 'admin@dreamfly.test', 'channel' => 'email']);
+        $this->assertSame(1, \Modules\System\Models\Notification::where('user_id', $staff->id)->where('type', 'step_handoff_assignment')->count());
+        $this->assertSame(1, \Modules\System\Models\Notification::where('user_id', $admin->id)->where('type', 'step_handoff_admin')->count());
     }
 
     public function test_admin_summary_cannot_complete_from_wrong_stage(): void
@@ -197,6 +230,34 @@ class AdminSummaryTest extends TestCase
         $this->assertStringContainsString('United Kingdom', $docText);
         $this->assertStringContainsString('Visit family', $docText);
         $this->assertStringContainsString('Mr Smith', $docText);
+    }
+
+    public function test_admin_summary_docx_generation_honours_chosen_folder_and_file_name(): void
+    {
+        $user = $this->userWith(['clients.edit', 'files.view']);
+        $client = $this->client();
+
+        ClientAdminSummary::create([
+            'client_id' => $client->id,
+            'summary' => 'Client documents and agreement have been checked.',
+            'form_data' => ['client_name' => 'Arunpragash Alwar'],
+            'status' => 'completed',
+            'created_by' => $user->id,
+        ]);
+
+        $otherFolder = Folder::create(['name' => 'Custom Save Folder', 'slug' => 'custom-save-folder', 'scope' => 'global', 'is_active' => true]);
+
+        $response = $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/admin-summary/generate-docx", [
+            'folder_id' => $otherFolder->id,
+            'file_name' => 'Custom Admin Summary Name',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.file.name', 'Custom Admin Summary Name.docx');
+
+        $file = File::first();
+        $this->assertSame($otherFolder->id, $file->folder_id);
+        $this->assertSame('Custom Admin Summary Name.docx', $file->original_name);
     }
 
     public function test_generated_admin_summary_can_be_previewed_converted_to_pdf_and_shared(): void

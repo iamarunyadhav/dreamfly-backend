@@ -11,6 +11,7 @@ use Modules\CommonUsers\Models\CommonUser;
 use Modules\Files\Models\File;
 use Modules\Folders\Models\Folder;
 use Modules\Folders\Services\FolderService;
+use Modules\Payments\Models\AdditionalCharge;
 use Modules\Payments\Models\Payment;
 use Modules\Workflows\Models\CaseStep;
 use Tests\TestCase;
@@ -227,6 +228,7 @@ class CommonUserConversionTest extends TestCase
             'Applicant Documents',
             'Inviter Documents',
             'Application Unit',
+            'Correction Unit',
             'Documentation Unit',
             'Invoices',
             'Final Documents',
@@ -259,7 +261,7 @@ class CommonUserConversionTest extends TestCase
         // Converting a lead is one of the two real client-creation paths - the
         // gated Workflow tab depends on every client having its case_steps
         // seeded from the moment it exists, never left to a manual step.
-        $this->assertSame(9, CaseStep::where('client_id', $client->id)->count());
+        $this->assertSame(11, CaseStep::where('client_id', $client->id)->count());
         $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'admin_summary')->value('status'));
 
         // The lead's own (now-empty) folder tree moves into Moved > Common
@@ -275,6 +277,37 @@ class CommonUserConversionTest extends TestCase
             'common_user_id' => $lead->id,
             'parent_id' => $movedCountry->id,
         ]);
+    }
+
+    public function test_common_user_conversion_carries_additional_charges_to_the_client(): void
+    {
+        $staff = $this->staffWithConversionPermissions();
+        $lead = $this->lead();
+        $this->verifiedLeadFile($lead);
+        $this->signedAgreementAndPayment($lead);
+        app(FolderService::class)->createLeadFolderTree($lead, $staff->id);
+
+        $charge = AdditionalCharge::create([
+            'common_user_id' => $lead->id,
+            'description' => 'Police report document',
+            'amount' => 5000,
+            'created_by' => $staff->id,
+        ]);
+
+        $response = $this->actingAs($staff)->postJson("/api/v1/common-users/{$lead->id}/convert");
+        $response->assertStatus(201);
+
+        $client = Client::first();
+        $this->assertNotNull($client);
+
+        $charge->refresh();
+        $this->assertSame($client->id, $charge->client_id);
+        $this->assertNull($charge->common_user_id);
+
+        $this->assertSame(1, AdditionalCharge::count());
+        $this->assertSame(5000, (int) $client->additional_charges_total);
+        // Balance = agreement_amount (225000) + additional_charges_total (5000) - paid_amount (50000).
+        $this->assertSame(180000, (int) $client->balance);
     }
 
     public function test_deleted_common_user_folder_moves_to_archive_and_restores_to_active_tree(): void

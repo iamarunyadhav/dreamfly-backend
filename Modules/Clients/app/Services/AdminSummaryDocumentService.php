@@ -6,6 +6,7 @@ use DOMDocument;
 use DOMXPath;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Modules\Clients\Models\Client;
 use Modules\Clients\Models\ClientAdminSummary;
 use Modules\Files\Models\File;
@@ -45,18 +46,16 @@ class AdminSummaryDocumentService
     {
     }
 
-    public function generate(Client $client, ClientAdminSummary $summary, int $userId): File
+    public function generate(Client $client, ClientAdminSummary $summary, int $userId, ?int $folderId = null, ?string $fileName = null): File
     {
         $template = Storage::path(self::TEMPLATE_PATH);
         if (! is_file($template)) {
-            $source = 'C:\\Users\\PC\\Music\\visa\\Summary.docx';
-            if (is_file($source)) {
-                Storage::put(self::TEMPLATE_PATH, file_get_contents($source));
-                $template = Storage::path(self::TEMPLATE_PATH);
-            }
+            throw ValidationException::withMessages([
+                'template' => ['The Admin Summary template (Summary.docx) is missing on this server. Upload it to storage/app/private/'.self::TEMPLATE_PATH.'.'],
+            ]);
         }
 
-        $folder = $this->adminSummaryFolder($client, $userId);
+        $folder = $folderId ? Folder::findOrFail($folderId) : $this->adminSummaryFolder($client, $userId);
         $safeReference = Str::slug($client->reference_no) ?: 'client-'.$client->id;
         $storedName = $safeReference.'-admin-summary-'.now()->format('YmdHis').'.docx';
         $relativePath = 'generated/client-'.$client->id.'/'.$storedName;
@@ -69,11 +68,13 @@ class AdminSummaryDocumentService
         copy($template, $absolutePath);
         $this->fillDocx($absolutePath, $this->values($client, $summary));
 
+        $displayName = $fileName ? preg_replace('/\.docx$/i', '', trim($fileName)).'.docx' : $client->reference_no.' Admin Summary.docx';
+
         $file = File::create([
             'folder_id' => $folder->id,
             'client_id' => $client->id,
             'name' => $storedName,
-            'original_name' => $client->reference_no.' Admin Summary.docx',
+            'original_name' => $displayName,
             'disk' => 'local',
             'path' => $relativePath,
             'extension' => 'docx',

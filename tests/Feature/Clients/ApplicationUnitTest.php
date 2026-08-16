@@ -171,6 +171,42 @@ class ApplicationUnitTest extends TestCase
         $this->assertSame('in_progress', CaseStep::where('client_id', $client->id)->where('key', 'documentation_unit')->value('status'));
     }
 
+    public function test_application_unit_complete_assigns_chosen_correction_unit_staff_and_notifies(): void
+    {
+        $client = $this->client();
+        $nila = User::factory()->create(['status' => 'active', 'name' => 'Nila', 'email' => 'nila@dreamfly.test', 'phone' => '94770000011']);
+
+        $response = $this->actingAs($this->staff('application-unit.complete'))
+            ->postJson("/api/v1/clients/{$client->id}/application-unit/complete", [
+                'form_data' => ['full_name_as_per_passport' => 'Kavitha S', 'passport_number' => 'N7654321'],
+                'applicant_checklist' => [['title' => 'Passport (Current)', 'status' => 'completed', 'required' => true]],
+                'inviter_checklist' => [['title' => 'Proof Of Legal Status', 'status' => 'completed', 'required' => true]],
+                'next_assigned_user_id' => $nila->id,
+            ]);
+
+        $response->assertOk();
+        $this->assertSame($nila->id, CaseStep::where('client_id', $client->id)->where('key', 'documentation_unit')->value('assigned_user_id'));
+        $response->assertJsonPath('data.handoff.assignee.user_id', $nila->id);
+        $this->assertDatabaseHas('messages', ['client_id' => $client->id, 'recipient' => 'nila@dreamfly.test']);
+    }
+
+    public function test_application_unit_complete_falls_back_to_supervisor_when_no_one_chosen(): void
+    {
+        $supervisor = User::factory()->create(['status' => 'active', 'email' => 'sup@dreamfly.test']);
+        $client = $this->client(['assigned_supervisor_id' => $supervisor->id]);
+
+        $response = $this->actingAs($this->staff('application-unit.complete'))
+            ->postJson("/api/v1/clients/{$client->id}/application-unit/complete", [
+                'form_data' => ['full_name_as_per_passport' => 'Kavitha S', 'passport_number' => 'N7654321'],
+                'applicant_checklist' => [['title' => 'Passport (Current)', 'status' => 'completed', 'required' => true]],
+                'inviter_checklist' => [['title' => 'Proof Of Legal Status', 'status' => 'completed', 'required' => true]],
+            ]);
+
+        $response->assertOk();
+        $this->assertSame($supervisor->id, CaseStep::where('client_id', $client->id)->where('key', 'documentation_unit')->value('assigned_user_id'));
+        $response->assertJsonPath('data.handoff.assignee.user_id', $supervisor->id);
+    }
+
     public function test_application_unit_docx_generation_saves_file_and_binds_values(): void
     {
         $user = $this->staff('application-unit.generate');
@@ -217,6 +253,33 @@ class ApplicationUnitTest extends TestCase
         $this->assertStringContainsString('125000', $docText);
         $this->assertStringContainsString('Kavitha S', $docText);
         $this->assertStringContainsString('N7654321', $docText);
+    }
+
+    public function test_application_unit_docx_generation_honours_chosen_folder_and_file_name(): void
+    {
+        $user = $this->staff('application-unit.generate');
+        $client = $this->client();
+
+        ClientApplicationUnit::create([
+            'client_id' => $client->id,
+            'form_data' => ['full_name_as_per_passport' => 'Kavitha S'],
+            'status' => 'draft',
+            'created_by' => $user->id,
+        ]);
+
+        $otherFolder = Folder::create(['name' => 'Custom Save Folder', 'slug' => 'custom-save-folder-au', 'scope' => 'global', 'is_active' => true]);
+
+        $response = $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/application-unit/generate-docx", [
+            'folder_id' => $otherFolder->id,
+            'file_name' => 'Custom Application Data',
+        ]);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.file.name', 'Custom Application Data.docx');
+
+        $file = File::first();
+        $this->assertSame($otherFolder->id, $file->folder_id);
+        $this->assertSame('Custom Application Data.docx', $file->original_name);
     }
 
     public function test_application_unit_checklist_file_upload_links_document_to_row(): void
@@ -304,6 +367,40 @@ class ApplicationUnitTest extends TestCase
         $reject->assertJsonPath('data.status', 'rejected');
         $this->assertSame('rejected', ClientApplicationUnit::first()->applicant_checklist[0]['status']);
         $this->assertSame('Blurry scan', ClientApplicationUnit::first()->applicant_checklist[0]['rejection_reason']);
+    }
+
+    /**
+     * Guards a defect found while adding the checklist-upload button to the
+     * Correction Unit panel: the list/upload routes were gated on
+     * `application-unit.*` only, which "Correction Unit Staff" (nor the new
+     * "Documentation Unit Staff") has ever held - the role could verify/reject
+     * (files.verify) but never actually load or upload against the checklist
+     * it owns.
+     */
+    public function test_correction_unit_and_documentation_unit_staff_roles_can_list_and_upload_the_runtime_checklist(): void
+    {
+        $client = $this->client(['current_stage' => 'documentation_unit']);
+        ClientApplicationUnit::create([
+            'client_id' => $client->id,
+            'applicant_checklist' => [
+                ['title' => 'Passport (Current)', 'status' => 'missing', 'required' => true, 'owner' => 'applicant'],
+            ],
+            'inviter_checklist' => [],
+            'status' => 'completed',
+        ]);
+
+        foreach (['Correction Unit Staff', 'Documentation Unit Staff'] as $roleName) {
+            $user = User::factory()->create(['status' => 'active']);
+            $user->assignRole($roleName);
+
+            $this->actingAs($user)->getJson("/api/v1/clients/{$client->id}/application-unit/checklist-items")->assertOk();
+
+            $this->actingAs($user)->postJson("/api/v1/clients/{$client->id}/application-unit/checklist-file", [
+                'kind' => 'applicant',
+                'index' => 0,
+                'file' => UploadedFile::fake()->create($roleName.'.pdf', 80, 'application/pdf'),
+            ])->assertStatus(201);
+        }
     }
 
     private function docxText(string $path): string

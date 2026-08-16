@@ -26,7 +26,7 @@ class CaseStepBackfillCommandTest extends TestCase
 
         Artisan::call('case-steps:backfill');
 
-        $this->assertSame(9, CaseStep::where('client_id', $legacyClient->id)->count());
+        $this->assertSame(11, CaseStep::where('client_id', $legacyClient->id)->count());
         $this->assertSame(
             'in_progress',
             CaseStep::where('client_id', $legacyClient->id)->where('key', 'documentation_unit')->value('status')
@@ -43,10 +43,10 @@ class CaseStepBackfillCommandTest extends TestCase
             'status' => 'active',
         ]);
         app(CaseStepService::class)->initializeForClient($client);
-        $this->assertSame(9, CaseStep::where('client_id', $client->id)->count());
+        $this->assertSame(11, CaseStep::where('client_id', $client->id)->count());
 
         Artisan::call('case-steps:backfill');
 
-        $this->assertSame(9, CaseStep::where('client_id', $client->id)->count());
+        $this->assertSame(11, CaseStep::where('client_id', $client->id)->count());
     }
 }

@@ -4,6 +4,7 @@ namespace Modules\Clients\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\Files\Http\Resources\FileResource;
 
 class DocumentationTaskResource extends JsonResource
 {
@@ -31,6 +32,8 @@ class DocumentationTaskResource extends JsonResource
             'escalation_at' => $this->escalation_at,
             'escalated_at' => $this->escalated_at,
             'notes' => $this->notes,
+            'file_id' => $this->file_id,
+            'file' => $this->whenLoaded('file', fn () => $this->file ? new FileResource($this->file) : null),
             'created_by' => $this->created_by,
             'updated_by' => $this->updated_by,
             'created_at' => $this->created_at,

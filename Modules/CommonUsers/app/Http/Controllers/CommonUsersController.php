@@ -23,7 +23,9 @@ use Modules\Files\Services\FileService;
 use Modules\Folders\Services\FolderService;
 use Modules\Payments\Services\PaymentService;
 use Modules\Payments\Models\Payment;
+use Modules\Payments\Models\AdditionalCharge;
 use Modules\Payments\Http\Resources\PaymentResource;
+use Modules\Payments\Http\Resources\AdditionalChargeResource;
 
 class CommonUsersController extends Controller
 {
@@ -36,7 +38,7 @@ class CommonUsersController extends Controller
     public function index(Request $request)
     {
         if ($request->query('archived') === 'only') {
-            $query = CommonUser::onlyTrashed()->with('profilePhoto')->withCount(['documents', 'verifiedDocuments']);
+            $query = CommonUser::onlyTrashed()->with('profilePhoto')->withCount(['documents', 'verifiedDocuments', 'agreements'])->withSum('additionalCharges', 'amount');
 
             if ($search = $request->query('search')) {
                 $query->where(function ($q) use ($search) {
@@ -60,7 +62,7 @@ class CommonUsersController extends Controller
             filters: $request->only(['search', 'status', 'service_category', 'country']),
         );
 
-        $commonUsers->getCollection()->load('profilePhoto');
+        $commonUsers->getCollection()->load('profilePhoto')->loadCount('agreements')->loadSum('additionalCharges', 'amount');
 
         return $this->ok(CommonUserResource::collection($commonUsers));
     }
@@ -79,7 +81,7 @@ class CommonUsersController extends Controller
 
     public function show(CommonUser $commonUser)
     {
-        $commonUser->load('profilePhoto')->loadCount(['documents', 'verifiedDocuments']);
+        $commonUser->load('profilePhoto')->loadCount(['documents', 'verifiedDocuments', 'agreements'])->loadSum('additionalCharges', 'amount');
 
         return $this->ok(new CommonUserResource($commonUser));
     }
@@ -146,6 +148,36 @@ class CommonUsersController extends Controller
         });
 
         return $this->created(new FileResource($file), 'Profile photo updated.');
+    }
+
+    /** List one-off additional charges layered on top of this lead's agreement amount. */
+    public function additionalCharges(CommonUser $commonUser)
+    {
+        return $this->ok(AdditionalChargeResource::collection($commonUser->additionalCharges()->latest()->get()));
+    }
+
+    public function storeAdditionalCharge(Request $request, CommonUser $commonUser)
+    {
+        $validated = $request->validate([
+            'description' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $charge = $commonUser->additionalCharges()->create([
+            ...$validated,
+            'created_by' => $request->user()->id,
+        ]);
+
+        return $this->created(new AdditionalChargeResource($charge), 'Additional charge added.');
+    }
+
+    public function destroyAdditionalCharge(CommonUser $commonUser, AdditionalCharge $additionalCharge)
+    {
+        abort_unless($additionalCharge->common_user_id === $commonUser->id, 404);
+
+        $additionalCharge->delete();
+
+        return $this->noContent();
     }
 
     public function recordPayment(Request $request, CommonUser $commonUser, PaymentService $paymentService, FileService $fileService, FolderService $folderService)
@@ -222,11 +254,8 @@ class CommonUsersController extends Controller
             ]);
         }
 
-        if (! Agreement::where('common_user_id', $commonUser->id)->whereNotNull('signed_file_id')->where('status', 'signed')->exists()) {
-            throw ValidationException::withMessages([
-                'agreement' => ['Upload and verify the signed agreement before converting to a client.'],
-            ]);
-        }
+        // Note: the signed agreement is intentionally NOT required to convert - it can be
+        // collected from the client after conversion and uploaded from the Client record.
 
         if (! Payment::where('common_user_id', $commonUser->id)->where('status', 'verified')->whereNotNull('receipt_file_id')->exists()) {
             throw ValidationException::withMessages([
@@ -277,6 +306,15 @@ class CommonUsersController extends Controller
             ]);
 
             Agreement::where('common_user_id', $commonUser->id)->update([
+                'client_id' => $client->id,
+                'common_user_id' => null,
+            ]);
+
+            // Additional charges the lead accrued before conversion (e.g. an
+            // extra service fee agreed at intake) move across the same way,
+            // so they keep counting toward the client's balance instead of
+            // being silently stranded on the now-converted lead record.
+            AdditionalCharge::where('common_user_id', $commonUser->id)->update([
                 'client_id' => $client->id,
                 'common_user_id' => null,
             ]);

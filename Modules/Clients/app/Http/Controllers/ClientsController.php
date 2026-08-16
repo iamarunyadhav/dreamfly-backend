@@ -14,6 +14,8 @@ use Modules\Clients\Services\ClientService;
 use Modules\Files\Http\Resources\FileResource;
 use Modules\Files\Services\FileService;
 use Modules\Folders\Services\FolderService;
+use Modules\Payments\Models\AdditionalCharge;
+use Modules\Payments\Http\Resources\AdditionalChargeResource;
 
 class ClientsController extends Controller
 {
@@ -51,7 +53,7 @@ class ClientsController extends Controller
             filters: $request->only(['search', 'status', 'country']),
         );
 
-        $clients->getCollection()->load('profilePhoto');
+        $clients->getCollection()->load('profilePhoto')->loadSum('additionalCharges', 'amount');
 
         return $this->ok(ClientResource::collection($clients));
     }
@@ -70,7 +72,7 @@ class ClientsController extends Controller
 
     public function show(Client $client)
     {
-        $client->load('profilePhoto');
+        $client->load('profilePhoto')->loadSum('additionalCharges', 'amount');
 
         return $this->ok(new ClientResource($client));
     }
@@ -98,6 +100,36 @@ class ClientsController extends Controller
         });
 
         return $this->created(new FileResource($file), 'Profile photo updated.');
+    }
+
+    /** List one-off additional charges layered on top of this client's agreement amount. */
+    public function additionalCharges(Client $client)
+    {
+        return $this->ok(AdditionalChargeResource::collection($client->additionalCharges()->latest()->get()));
+    }
+
+    public function storeAdditionalCharge(Request $request, Client $client)
+    {
+        $validated = $request->validate([
+            'description' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'integer', 'min:1'],
+        ]);
+
+        $charge = $client->additionalCharges()->create([
+            ...$validated,
+            'created_by' => $request->user()->id,
+        ]);
+
+        return $this->created(new AdditionalChargeResource($charge), 'Additional charge added.');
+    }
+
+    public function destroyAdditionalCharge(Client $client, AdditionalCharge $additionalCharge)
+    {
+        abort_unless($additionalCharge->client_id === $client->id, 404);
+
+        $additionalCharge->delete();
+
+        return $this->noContent();
     }
 
     public function destroy(Request $request, Client $client, FolderService $folderService)

@@ -22,6 +22,13 @@ Route::middleware(['auth:sanctum'])->prefix('v1')->group(function () {
     Route::post('common-users/{commonUser}/payments', [CommonUsersController::class, 'recordPayment'])
         ->middleware(['permission:common-users.edit', 'permission:payments.create'])->name('common-users.payments.store');
 
+    Route::get('common-users/{commonUser}/additional-charges', [CommonUsersController::class, 'additionalCharges'])
+        ->middleware('permission:common-users.view')->name('common-users.additional-charges.index');
+    Route::post('common-users/{commonUser}/additional-charges', [CommonUsersController::class, 'storeAdditionalCharge'])
+        ->middleware(['permission:common-users.edit', 'permission:payments.create'])->name('common-users.additional-charges.store');
+    Route::delete('common-users/{commonUser}/additional-charges/{additionalCharge}', [CommonUsersController::class, 'destroyAdditionalCharge'])
+        ->middleware(['permission:common-users.edit', 'permission:payments.delete'])->name('common-users.additional-charges.destroy');
+
     Route::post('common-users/{commonUser}/convert', [CommonUsersController::class, 'convert'])
         ->middleware(['permission:common-users.edit', 'permission:clients.convert'])
         ->name('common-users.convert');

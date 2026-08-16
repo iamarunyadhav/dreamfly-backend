@@ -615,6 +615,7 @@ class FolderService extends BaseService
             'Applicant Documents',
             'Inviter Documents',
             'Application Unit',
+            'Correction Unit',
             'Documentation Unit',
             'Invoices',
             'Final Documents',
